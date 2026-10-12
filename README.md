@@ -56,9 +56,16 @@ Tudo do projeto vive em `src/` (a raiz do repo só tem docs e configs):
 
 Detalhes de desenvolvimento em `src/README.md`; regras do projeto em `AGENTS.md`.
 
-## Dependências
+## Tecnologias e linguagens
 
-Runtime: `hono`, `react`, `react-dom`, `web-push`. Tooling: `bun`, `typescript`. Externas: navegador Chrome (QA), Leaflet e tiles OSM via CDN (mapas degradam sem rede, o resto funciona).
+Linguagens: TypeScript (API, front, tools e testes), HTML e CSS (shell PWA), SQL (schema e migrations do SQLite).
+
+- Runtime e tooling: Bun 1.x (dev server, build, testes, migrations, seeds).
+- Frontend: React 19 como PWA instalavel (manifesto + service worker + tela offline).
+- Backend: Hono 4, unico lugar que decide estoque, faltas e bloqueio.
+- Banco: SQLite em arquivo unico, modo WAL, transacoes em todas as operacoes criticas.
+- Push e mapas: Web Push com chaves VAPID; Leaflet 1.9.4 via CDN com tiles OpenStreetMap (mapas degradam sem rede, o resto funciona).
+- QA: Playwright MCP com Chrome (config em `.pi/mcp.json`).
 
 ## Como rodar após o clone
 
