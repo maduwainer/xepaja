@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>XepaJá - ofertas perto de voce</title>
+  <meta name="description" content="XepaJá conecta feirantes e mercearias a moradores: ofertas com desconto ou gratis para retirada presencial." />
+  <meta name="theme-color" content="#1f7a3d" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+    defer
+  ></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="/dist/main.js" defer></script>
+  <script>
+    // Live reload apenas em desenvolvimento local: observa o bundle gerado
+    // pelo watch do front e recarrega a pagina quando ele muda.
+    // Em producao o bundle e estavel e nada acontece.
+    (function () {
+      try {
+        var host = window.location.hostname;
+        if (host !== "localhost" && host !== "127.0.0.1") return;
+        var last = null;
+        setInterval(function () {
+          fetch("/dist/main.js", { method: "HEAD", cache: "no-store" })
+            .then(function (res) {
+              var tag = res.headers.get("etag") || res.headers.get("last-modified") || res.headers.get("content-length");
+              if (!tag) return;
+              if (last === null) { last = tag; return; }
+              if (last !== tag) window.location.reload();
+            })
+            .catch(function () {});
+        }, 1500);
+      } catch (e) {}
+    })();
+  </script>
+</body>
+</html>

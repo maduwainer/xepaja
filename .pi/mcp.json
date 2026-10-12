@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest", "--browser", "chrome", "--caps", "testing"],
+      "description": "Automacao de navegador para QA das telas do XepaJa em http://localhost:3000"
+    },
+    "chrome-devtools": {
+      "enabled": false
+    }
+  }
+}
