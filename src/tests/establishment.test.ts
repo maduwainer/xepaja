@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { app } from "../src/api/index";
-import { migrate } from "../src/api/db";
+import { migrate, truncateAll } from "../src/api/db";
 
 let counter = 1000;
 function uniqueEmail(): string {
@@ -31,7 +31,7 @@ async function authed(cookie: string, path: string, init?: RequestInit): Promise
   });
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("estabelecimento e itens", () => {
   test("sem estabelecimento, can_publish e falso com motivo", async () => {

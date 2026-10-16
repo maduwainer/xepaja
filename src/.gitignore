@@ -6,8 +6,7 @@ out
 dist
 *.tgz
 
-# runtime (sqlite local, fotos, chaves VAPID; nunca versionar)
-data/*.sqlite*
+# runtime (fotos, chaves VAPID; nunca versionar)
 data/uploads/
 data/vapid.json
 

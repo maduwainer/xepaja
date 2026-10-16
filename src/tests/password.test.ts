@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { app } from "../src/api/index";
-import { getDb, migrate } from "../src/api/db";
+import { getDb, migrate, truncateAll } from "../src/api/db";
 
 let counter = 7000;
 function uniqueEmail(): string {
@@ -53,14 +53,12 @@ function login(email: string, password: string) {
   });
 }
 
-function pendingTokenCount(userId: number): number {
-  const row = getDb()
-    .query("SELECT COUNT(*) AS n FROM password_resets WHERE user_id = ? AND used_at IS NULL")
-    .get(userId) as { n: number };
-  return row.n;
+async function pendingTokenCount(userId: number): Promise<number> {
+  const rows = await getDb()`SELECT COUNT(*)::int AS n FROM password_resets WHERE user_id = ${userId} AND used_at IS NULL`;
+  return (rows[0] as { n: number }).n;
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("recuperacao de senha", () => {
   test("forgot nao revela se o e-mail existe (sem oraculo)", async () => {
@@ -73,9 +71,9 @@ describe("recuperacao de senha", () => {
     expect(await yes.json()).toEqual({ ok: true, message: GENERIC });
     expect(await no.json()).toEqual({ ok: true, message: GENERIC });
     // So o existente gerou token.
-    expect(pendingTokenCount(user.id)).toBe(1);
-    const ghost = getDb().query("SELECT id FROM users WHERE email = ?").get("ninguem-deste-app@exemplo.com");
-    expect(ghost).toBeNull();
+    expect(await pendingTokenCount(user.id)).toBe(1);
+    const ghost = await getDb()`SELECT id FROM users WHERE email = ${"ninguem-deste-app@exemplo.com"}`;
+    expect(ghost.length).toBe(0);
   });
 
   test("reset com token valido troca a senha, usa uma vez e mata sessoes", async () => {
@@ -83,9 +81,8 @@ describe("recuperacao de senha", () => {
     await forgot(user.email);
     // Recupera o token real pelo log interno: recria o fluxo lendo o ultimo
     // registro e usando um token invalido antes para provar uso unico depois.
-    const row = getDb()
-      .query("SELECT token_hash FROM password_resets WHERE user_id = ? ORDER BY id DESC LIMIT 1")
-      .get(user.id) as { token_hash: string };
+    const tokenRows = await getDb()`SELECT token_hash FROM password_resets WHERE user_id = ${user.id} ORDER BY id DESC LIMIT 1`;
+    const row = tokenRows[0] as { token_hash: string };
     expect(row.token_hash).toHaveLength(64);
 
     // Token errado nao revela nada util e nao consome o verdadeiro.
@@ -96,10 +93,8 @@ describe("recuperacao de senha", () => {
     // Para concluir o fluxo, gera-se um token conhecido via linha direta:
     // (o token real saiu no log do servidor, fora do alcance do teste)
     const known = "a".repeat(64);
-    getDb().query("DELETE FROM password_resets WHERE user_id = ?").run(user.id);
-    getDb()
-      .query("INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-      .run(user.id, createHash("sha256").update(known).digest("hex"), new Date(Date.now() + 3600_000).toISOString());
+    await getDb()`DELETE FROM password_resets WHERE user_id = ${user.id}`;
+    await getDb()`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${createHash("sha256").update(known).digest("hex")}, ${new Date(Date.now() + 3600_000).toISOString()})`;
 
     const short = await reset(known, "curta");
     expect(short.status).toBe(400);
@@ -123,9 +118,7 @@ describe("recuperacao de senha", () => {
   test("token expirado e rejeitado", async () => {
     const user = await signup();
     const known = "b".repeat(64);
-    getDb()
-      .query("INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-      .run(user.id, createHash("sha256").update(known).digest("hex"), new Date(Date.now() - 1000).toISOString());
+    await getDb()`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${createHash("sha256").update(known).digest("hex")}, ${new Date(Date.now() - 1000).toISOString()})`;
     const res = await reset(known, "nova-senha-73");
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe("invalid_token");

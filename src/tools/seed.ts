@@ -24,9 +24,15 @@
 // Manutencao: ao mudar fluxos, validacoes ou formatos da API, atualizar
 // este arquivo junto (ver "Seed de demonstracao" em ../AGENTS.md).
 
-import { Database } from "bun:sqlite";
+import postgres from "postgres";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// Excecoes fora da API (faltas, relogio, bloqueio) escrevem direto no
+// Postgres de dev. Exige DATABASE_URL no .env e API rodando (watch).
+const seedDbUrl = process.env.DATABASE_URL ?? "";
+if (!seedDbUrl) throw new Error("seed: defina DATABASE_URL no .env");
+const seedDb = postgres(seedDbUrl);
 
 const SEED_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -391,6 +397,10 @@ async function ensureOffer(
     if (draft.status !== 201) fail(`rascunho ${spec.title}`, draft);
     offerId = draft.json.offer.id;
     console.log(`oferta criada: ${spec.title}`);
+    if (spec.draftOnly) {
+      console.log(`oferta rascunho (sem foto, sem publicar): ${spec.title}`);
+      return offerId;
+    }
   } else {
     offerId = existing.id;
     if (existing.state === "publicada") {
@@ -451,16 +461,13 @@ async function activeReservation(cookie: string): Promise<{ id: number } | null>
   return res.json.reservation;
 }
 
-function markOneMiss(email: string): void {
+async function markOneMiss(email: string): Promise<void> {
   // Excecao documentada fora da API: faltas so acontecem por expiracao real.
-  const db = new Database("data/xepaja.sqlite");
-  const user = db.query("SELECT id, misses_since_unblock AS m FROM users WHERE email = ?").get(email) as {
-    id: number;
-    m: number;
-  } | null;
+  const found = await seedDb`SELECT id, misses_since_unblock AS m FROM users WHERE email = ${email}`;
+  const user = (found[0] as { id: number; m: number } | undefined) ?? null;
   if (!user) throw new Error(`seed: usuario ${email} nao encontrado para marcar falta`);
   if (user.m === 0) {
-    db.query("UPDATE users SET misses_since_unblock = 1 WHERE id = ?").run(user.id);
+    await seedDb`UPDATE users SET misses_since_unblock = 1 WHERE id = ${user.id}`;
     console.log(`falta de exemplo marcada: ${email}`);
   }
 }
@@ -555,8 +562,8 @@ for (const spec of ESTABLISHMENTS) {
 }
 
 // Falta de exemplo antes dos pedidos: com 1 falta o pedido sai pendente.
-markOneMiss("cliente-joao@exemplo.com");
-markOneMiss("cliente-beto@exemplo.com");
+await markOneMiss("cliente-joao@exemplo.com");
+await markOneMiss("cliente-beto@exemplo.com");
 
 async function historyList(cookie: string): Promise<{ id: number; offer_title: string; state: string }[]> {
   const res = await req("/api/reservations/history", { cookie });
@@ -653,12 +660,11 @@ async function merchantCancelFlow(consumerEmail: string, title: string, reason: 
   console.log(`comercio cancelou: ${consumerEmail} -> ${title}`);
 }
 
-function timeTravelReservation(id: number, field: "pending_expires_at" | "pickup_until", iso: string): void {
+async function timeTravelReservation(id: number, field: "pending_expires_at" | "pickup_until", iso: string): Promise<void> {
   // Excecao documentada fora da API: expiracao real levaria 30 min ou
   // horas; aqui adiantamos o relogio da reserva e disparamos a varredura
   // preguicosa com uma leitura normal.
-  const db = new Database("data/xepaja.sqlite");
-  db.query(`UPDATE reservations SET ${field} = ? WHERE id = ?`).run(iso, id);
+  await seedDb`UPDATE reservations SET ${seedDb(field)} = ${iso} WHERE id = ${id}`;
 }
 
 // Expirada sem falta: pendente que passou dos 30 min sem decisao.
@@ -672,7 +678,7 @@ async function expirePendingFlow(consumerEmail: string, title: string): Promise<
     return;
   }
   const id = await ensurePending(cookie, offerId, title, consumerEmail.split("@")[0]);
-  timeTravelReservation(id, "pending_expires_at", new Date(Date.now() - 60_000).toISOString());
+  await timeTravelReservation(id, "pending_expires_at", new Date(Date.now() - 60_000).toISOString());
   await req("/api/reservations/active", { cookie });
   const after = await historyList(cookie);
   if (!after.some((h) => h.offer_title === title && h.state === "expirada")) {
@@ -701,7 +707,7 @@ async function expireConfirmedFlow(consumerEmail: string, title: string): Promis
     if (!created) throw new Error(`seed: oferta ${title} fora de jogo para ${consumerEmail}`);
     id = created.id;
   }
-  timeTravelReservation(id, "pickup_until", new Date(Date.now() - 30 * 60_000).toISOString());
+  await timeTravelReservation(id, "pickup_until", new Date(Date.now() - 30 * 60_000).toISOString());
   await req("/api/reservations/active", { cookie });
   const after = await historyList(cookie);
   if (!after.some((h) => h.offer_title === title && h.state === "expirada")) {
@@ -731,21 +737,16 @@ async function closeOfferAs(ownerEmail: string, title: string, how: "encerrar" |
   console.log(`oferta ${how === "encerrar" ? "encerrada" : "cancelada"}: ${title}`);
 }
 
-function blockCarlos(): void {
+async function blockCarlos(): Promise<void> {
   // Excecao documentada fora da API: bloqueio real exige 3 faltas em 10 dias.
-  const db = new Database("data/xepaja.sqlite");
-  const user = db.query("SELECT id, blocked_until AS b FROM users WHERE email = ?").get(
-    "cliente-carlos@exemplo.com",
-  ) as { id: number; b: string | null } | null;
+  const found = await seedDb`SELECT id, blocked_until AS b FROM users WHERE email = ${"cliente-carlos@exemplo.com"}`;
+  const user = (found[0] as { id: number; b: string | null } | undefined) ?? null;
   if (!user) throw new Error("seed: cliente-carlos ausente");
   if (user.b && new Date(user.b).getTime() > Date.now()) {
     console.log("bloqueio ja existe: cliente-carlos");
     return;
   }
-  db.query("UPDATE users SET misses_since_unblock = 3, blocked_until = ? WHERE id = ?").run(
-    new Date(Date.now() + 10 * 24 * 60 * 60_000).toISOString(),
-    user.id,
-  );
+  await seedDb`UPDATE users SET misses_since_unblock = 3, blocked_until = ${new Date(Date.now() + 10 * 24 * 60 * 60_000).toISOString()} WHERE id = ${user.id}`;
   console.log("bloqueio de exemplo: cliente-carlos (3 faltas, 10 dias)");
 }
 
@@ -796,7 +797,8 @@ await expireConfirmedFlow("cliente-duda@exemplo.com", "Caixa demo da banca");
 
 await closeOfferAs("comercio-padaria@exemplo.com", "Xepa da padaria", "encerrar");
 await closeOfferAs("comercio-feira@exemplo.com", "Laranjas maduras gratis", "cancelar");
-blockCarlos();
+await blockCarlos();
 
 console.log("\nContas de exemplo (senha ao lado do e-mail):");
 for (const u of USERS) console.log(`- ${u.role === "merchant" ? "comerciante" : "consumidor"}: ${u.email} / ${u.password}`);
+await seedDb.end();

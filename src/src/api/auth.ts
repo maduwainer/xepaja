@@ -99,45 +99,39 @@ export async function verifyPassword(
   return Bun.password.verify(password, hash);
 }
 
-export function createSession(userId: number): { token: string; expiresAt: Date } {
+export async function createSession(userId: number): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  getDb()
-    .query(
-      "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
-    )
-    .run(userId, tokenHash, expiresAt.toISOString());
+  await getDb()`INSERT INTO sessions (user_id, token_hash, expires_at)
+    VALUES (${userId}, ${tokenHash}, ${expiresAt.toISOString()})`;
   return { token, expiresAt };
 }
 
-export function destroySession(token: string): void {
+export async function destroySession(token: string): Promise<void> {
   const tokenHash = createHash("sha256").update(token).digest("hex");
-  getDb().query("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+  await getDb()`DELETE FROM sessions WHERE token_hash = ${tokenHash}`;
 }
 
-export function getSessionUser(c: Context): SessionUser | null {
+export async function getSessionUser(c: Context): Promise<SessionUser | null> {
   const token = getCookie(c, SESSION_COOKIE);
   if (!token) return null;
   const tokenHash = createHash("sha256").update(token).digest("hex");
-  const row = getDb()
-    .query(
-      `SELECT u.id, u.name, u.email, u.role, u.search_radius_km,
+  const rows = await getDb()`SELECT u.id, u.name, u.email, u.role, u.search_radius_km,
               u.misses_since_unblock, u.blocked_until, s.expires_at
        FROM sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ?`,
-    )
-    .get(tokenHash) as (UserRow & { expires_at: string }) | null;
+       WHERE s.token_hash = ${tokenHash}`;
+  const row = (rows[0] as (UserRow & { expires_at: string }) | undefined) ?? null;
   if (!row) return null;
   if (new Date(row.expires_at).getTime() <= Date.now()) {
-    destroySession(token);
+    await destroySession(token);
     return null;
   }
   return toUserDTO(row);
 }
 
 export async function requireAuth(c: Context<AppEnv>, next: Next) {
-  const user = getSessionUser(c);
+  const user = await getSessionUser(c);
   if (!user) {
     return c.json(
       { ok: false, code: "unauthorized", message: "Sessao encerrada. Entre novamente." },
@@ -149,7 +143,7 @@ export async function requireAuth(c: Context<AppEnv>, next: Next) {
 }
 
 export async function requireMerchant(c: Context<AppEnv>, next: Next) {
-  const user = getSessionUser(c);
+  const user = await getSessionUser(c);
   if (!user) {
     return c.json(
       { ok: false, code: "unauthorized", message: "Sessao encerrada. Entre novamente." },

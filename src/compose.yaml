@@ -1,0 +1,46 @@
+# XepaJá: banco local/dev e base da demo na VPS.
+# Uso local: docker compose up -d db (depois bun run watch).
+# Demo/prod na VPS: docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+# com DOMAIN e demais chaves no .env (ver .env.example).
+name: xepaja
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xepaja}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xepaja-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-xepaja}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - xepaja-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-xepaja} -d $${POSTGRES_DB:-xepaja}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-xepaja}:${POSTGRES_PASSWORD:-xepaja-dev}@db:5432/${POSTGRES_DB:-xepaja}
+      XEPAJA_URL: ${XEPAJA_URL:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:xepaja@localhost}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - ./data/uploads:/app/data/uploads
+      - ./data/vapid.json:/app/data/vapid.json
+
+volumes:
+  xepaja-pgdata:

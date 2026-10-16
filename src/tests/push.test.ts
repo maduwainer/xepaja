@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { app } from "../src/api/index";
-import { getDb, migrate } from "../src/api/db";
+import { getDb, migrate, truncateAll } from "../src/api/db";
 
 let counter = 6000;
 function uniqueEmail(): string {
@@ -26,7 +26,7 @@ async function signup(): Promise<{ cookie: string; id: number; email: string }> 
   return { cookie: (res.headers.get("set-cookie") ?? "").split(";")[0], id: (await res.json()).user.id, email };
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("push e avisos", () => {
   test("vapid-key expoe a chave publica", async () => {
@@ -70,10 +70,8 @@ describe("push e avisos", () => {
       body: JSON.stringify(sub),
     });
     expect(again.status).toBe(200);
-    const count = getDb()
-      .query("SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?")
-      .get(user.id) as { n: number };
-    expect(count.n).toBe(1);
+    const countRows = await getDb()`SELECT COUNT(*)::int AS n FROM push_subscriptions WHERE user_id = ${user.id}`;
+    expect((countRows[0] as { n: number }).n).toBe(1);
 
     const out = await app.request("/api/push/unsubscribe", {
       method: "POST",
@@ -81,10 +79,8 @@ describe("push e avisos", () => {
       body: JSON.stringify({ endpoint: sub.endpoint }),
     });
     expect(out.status).toBe(200);
-    const after = getDb()
-      .query("SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?")
-      .get(user.id) as { n: number };
-    expect(after.n).toBe(0);
+    const afterRows = await getDb()`SELECT COUNT(*)::int AS n FROM push_subscriptions WHERE user_id = ${user.id}`;
+    expect((afterRows[0] as { n: number }).n).toBe(0);
   });
 
   test("aviso interno e garantido mesmo sem inscricao push", async () => {
@@ -99,9 +95,7 @@ describe("push e avisos", () => {
         keys: { p256dh: "dh", auth: "auth" },
       }),
     });
-    getDb()
-      .query("INSERT INTO notices (user_id, kind, body) VALUES (?, 'request_expired', 'expirou')")
-      .run(user.id);
+    await getDb()`INSERT INTO notices (user_id, kind, body) VALUES (${user.id}, 'request_expired', 'expirou')`;
     const list = await app.request("/api/notices", { headers: { Cookie: user.cookie } });
     expect(list.status).toBe(200);
     const body = await list.json();

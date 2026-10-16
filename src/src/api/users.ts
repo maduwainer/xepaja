@@ -60,7 +60,7 @@ usersApp.post("/auth/signup", async (c) => {
   }
 
   const db = getDb();
-  const existing = db.query("SELECT id FROM users WHERE email = ?").get(email);
+  const existing = (await db`SELECT id FROM users WHERE email = ${email}`)[0];
   if (existing) {
     return c.json(
       { ok: false, code: "email_in_use", message: "Este e-mail ja esta cadastrado." },
@@ -69,15 +69,12 @@ usersApp.post("/auth/signup", async (c) => {
   }
 
   const passwordHash = await hashPassword(password);
-  const row = db
-    .query(
-      `INSERT INTO users (name, cpf, email, password_hash, role, search_radius_km)
-       VALUES (?, ?, ?, ?, ?, ?) RETURNING id, name, email, role,
-       search_radius_km, misses_since_unblock, blocked_until`,
-    )
-    .get(name, cpf, email, passwordHash, role, radius) as Parameters<typeof toUserDTO>[0];
+  const inserted = await db`INSERT INTO users (name, cpf, email, password_hash, role, search_radius_km)
+       VALUES (${name}, ${cpf}, ${email}, ${passwordHash}, ${role}, ${radius})
+       RETURNING id, name, email, role, search_radius_km, misses_since_unblock, blocked_until`;
+  const row = inserted[0] as Parameters<typeof toUserDTO>[0];
 
-  const { token, expiresAt } = createSession(row.id);
+  const { token, expiresAt } = await createSession(row.id);
   const maxAge = Math.max(60, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
@@ -97,13 +94,12 @@ usersApp.post("/auth/login", async (c) => {
   if (!email || !password) {
     return c.json({ ok: false, code: "invalid_credentials", message: INVALID_LOGIN }, 401);
   }
-  const row = getDb()
-    .query("SELECT * FROM users WHERE email = ?")
-    .get(email) as (Parameters<typeof toUserDTO>[0] & { password_hash: string }) | null;
+  const found = await getDb()`SELECT * FROM users WHERE email = ${email}`;
+  const row = (found[0] as (Parameters<typeof toUserDTO>[0] & { password_hash: string }) | undefined) ?? null;
   if (!row || !(await verifyPassword(password, row.password_hash))) {
     return c.json({ ok: false, code: "invalid_credentials", message: INVALID_LOGIN }, 401);
   }
-  const { token, expiresAt } = createSession(row.id);
+  const { token, expiresAt } = await createSession(row.id);
   const maxAge = Math.max(60, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
@@ -116,9 +112,9 @@ usersApp.post("/auth/login", async (c) => {
 });
 
 // POST /api/auth/logout. RF-02: encerrar a sessao.
-usersApp.post("/auth/logout", (c) => {
+usersApp.post("/auth/logout", async (c) => {
   const token = getCookie(c, SESSION_COOKIE);
-  if (token) destroySession(token);
+  if (token) await destroySession(token);
   deleteCookie(c, SESSION_COOKIE, { path: "/" });
   return c.json({ ok: true });
 });
@@ -171,14 +167,15 @@ usersApp.patch("/users/me", requireAuth, async (c) => {
   }
 
   params.push(user.id);
-  const updated = getDb()
-    .query(
-      `UPDATE users SET ${updates.join(", ")},
-       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id = ? RETURNING id, name, email, role,
-       search_radius_km, misses_since_unblock, blocked_until`,
-    )
-    .get(...params) as Parameters<typeof toUserDTO>[0];
+  const db = getDb();
+  const setList = updates.map((u, i) => `${u.replace("?", `$${i + 1}`)}`).join(", ");
+  const updatedRows = await db.unsafe(
+    `UPDATE users SET ${setList}, updated_at = now()
+     WHERE id = $${params.length} RETURNING id, name, email, role,
+     search_radius_km, misses_since_unblock, blocked_until`,
+    params as (string | number)[],
+  );
+  const updated = updatedRows[0] as unknown as Parameters<typeof toUserDTO>[0];
   return c.json({ ok: true, user: toUserDTO(updated) });
 });
 

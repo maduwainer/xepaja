@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { app } from "../src/api/index";
-import { getDb, migrate } from "../src/api/db";
+import { getDb, migrate, truncateAll } from "../src/api/db";
 
 let counter = 4000;
 function uniqueEmail(): string {
@@ -80,7 +80,7 @@ async function signupConsumer(misses = 0): Promise<{ cookie: string; id: number 
   expect(res.status).toBe(201);
   const user = (await res.json()).user;
   if (misses > 0) {
-    getDb().query("UPDATE users SET misses_since_unblock = ? WHERE id = ?").run(misses, user.id);
+    await getDb()`UPDATE users SET misses_since_unblock = ${misses} WHERE id = ${user.id}`;
   }
   return { cookie: (res.headers.get("set-cookie") ?? "").split(";")[0], id: user.id };
 }
@@ -116,7 +116,7 @@ function reserve(cookie: string, offerId: number, key = randomUUID()) {
   });
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("reservas", () => {
   test("sem faltas confirma direto com codigo e snapshot; segunda ativa falha", async () => {
@@ -151,10 +151,8 @@ describe("reservas", () => {
     const again = await reserve(consumer.cookie, offerId, key);
     expect(again.status).toBe(200);
     expect((await again.json()).repeated).toBe(true);
-    const count = getDb()
-      .query("SELECT COUNT(*) AS n FROM reservations WHERE idempotency_key = ?")
-      .get(key) as { n: number };
-    expect(count.n).toBe(1);
+    const dupRows = await getDb()`SELECT COUNT(*)::int AS n FROM reservations WHERE idempotency_key = ${key}`;
+    expect((dupRows[0] as { n: number }).n).toBe(1);
   });
 
   test("concorrencia: uma unidade, dois pedidos, so um vence", async () => {
@@ -168,10 +166,8 @@ describe("reservas", () => {
     ]);
     const statuses = [ra.status, rb.status].sort();
     expect(statuses).toEqual([201, 409]);
-    const count = getDb()
-      .query("SELECT COUNT(*) AS n FROM reservations WHERE offer_id = ? AND state = 'confirmada'")
-      .get(offerId) as { n: number };
-    expect(count.n).toBe(1);
+    const concRows = await getDb()`SELECT COUNT(*)::int AS n FROM reservations WHERE offer_id = ${offerId} AND state = 'confirmada'`;
+    expect((concRows[0] as { n: number }).n).toBe(1);
   });
 
   test("com uma falta fica pendente; aceite confirma com codigo; recusa libera", async () => {
@@ -239,9 +235,7 @@ describe("reservas", () => {
     const req = await reserve(consumer.cookie, offerId);
     const pending = (await req.json()).reservation;
 
-    getDb()
-      .query("UPDATE reservations SET pending_expires_at = ? WHERE id = ?")
-      .run(new Date(Date.now() - 60_000).toISOString(), pending.id);
+    await getDb()`UPDATE reservations SET pending_expires_at = ${new Date(Date.now() - 60_000).toISOString()} WHERE id = ${pending.id}`;
 
     const active = await app.request("/api/reservations/active", {
       headers: { Cookie: consumer.cookie },
@@ -294,9 +288,7 @@ describe("reservas", () => {
     // Depois do limite de 15 minutos, impede.
     const req3 = await reserve(clean.cookie, offerId);
     const confirmed2 = (await req3.json()).reservation;
-    getDb()
-      .query("UPDATE reservations SET pickup_until = ? WHERE id = ?")
-      .run(new Date(Date.now() + 10 * 60_000).toISOString(), confirmed2.id);
+    await getDb()`UPDATE reservations SET pickup_until = ${new Date(Date.now() + 10 * 60_000).toISOString()} WHERE id = ${confirmed2.id}`;
     const tooLate = await app.request(`/api/reservations/${confirmed2.id}/cancel`, {
       method: "POST",
       headers: { Cookie: clean.cookie },
@@ -312,10 +304,8 @@ describe("reservas", () => {
     const req = await reserve(consumer.cookie, offerId);
     const confirmed = (await req.json()).reservation;
     // Simula tres retiradas perdidas alem da tolerancia.
-    getDb().query("UPDATE users SET misses_since_unblock = 2 WHERE id = ?").run(consumer.id);
-    getDb()
-      .query("UPDATE reservations SET pickup_until = ? WHERE id = ?")
-      .run(new Date(Date.now() - 3600_000).toISOString(), confirmed.id);
+    await getDb()`UPDATE users SET misses_since_unblock = 2 WHERE id = ${consumer.id}`;
+    await getDb()`UPDATE reservations SET pickup_until = ${new Date(Date.now() - 3600_000).toISOString()} WHERE id = ${confirmed.id}`;
 
     const active = await app.request("/api/reservations/active", {
       headers: { Cookie: consumer.cookie },

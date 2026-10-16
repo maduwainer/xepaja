@@ -21,12 +21,29 @@ interface EstablishmentRow {
 const ESTAB_COLUMNS =
   "id, owner_id, name, kind, cnpj, address_text, reference, hours, gps_lat, gps_lng, gps_captured_at";
 
-function getMine(ownerId: number): EstablishmentRow | null {
-  return (
-    (getDb()
-      .query(`SELECT ${ESTAB_COLUMNS} FROM establishments WHERE owner_id = ?`)
-      .get(ownerId) as EstablishmentRow | null) ?? null
+async function getMine(ownerId: number): Promise<EstablishmentRow | null> {
+  const rows = await getDb()`SELECT id, owner_id, name, kind, cnpj, address_text, reference, hours, gps_lat, gps_lng, gps_captured_at FROM establishments WHERE owner_id = ${ownerId}`;
+  return (rows[0] as unknown as EstablishmentRow | undefined) ?? null;
+}
+
+// UPDATE com colunas dinamicas: monta SET com placeholders $n.
+// touch atualiza updated_at; desligar para tabelas sem a coluna (items).
+async function updateReturning(
+  table: string,
+  updates: string[],
+  params: (string | number | null)[],
+  where: string,
+  returning: string,
+  touch = true,
+) {
+  const setList = updates
+    .map((u, i) => u.replace("?", `$${i + 1}`))
+    .join(", ");
+  const rows = await getDb().unsafe(
+    `UPDATE ${table} SET ${setList}${touch ? ", updated_at = now()" : ""} WHERE ${where} RETURNING ${returning}`,
+    params as (string | number)[],
   );
+  return rows;
 }
 
 // GPS registrado libera publicar ofertas (Fase 2 exige). Sem GPS, informa o motivo.
@@ -82,14 +99,14 @@ function str(value: unknown): string {
 // RF-04: estabelecimento com nome, tipo, CNPJ se tiver, endereco de retirada,
 // referencia e horario. GPS capturado no local; ao trocar o endereco, exige
 // recapturar o GPS na mesma requisicao. Vale para ofertas futuras (Fase 2 usa snapshot).
-establishmentsApp.get("/establishments/mine", requireMerchant, (c) => {
-  const estab = getMine(c.get("user").id);
+establishmentsApp.get("/establishments/mine", requireMerchant, async (c) => {
+  const estab = await getMine(c.get("user").id);
   return c.json({ ok: true, establishment: estab, ...publishStatus(estab) });
 });
 
 establishmentsApp.post("/establishments", requireMerchant, async (c) => {
   const user = c.get("user");
-  if (getMine(user.id)) {
+  if (await getMine(user.id)) {
     return c.json(
       { ok: false, code: "already_exists", message: "Voce ja tem um estabelecimento. Edite o atual." },
       409,
@@ -126,31 +143,19 @@ establishmentsApp.post("/establishments", requireMerchant, async (c) => {
     return c.json({ ok: false, code: "invalid_gps", message: gps.error }, 400);
   }
 
-  const estab = getDb()
-    .query(
-      `INSERT INTO establishments
+  const inserted = await getDb()`INSERT INTO establishments
        (owner_id, name, kind, cnpj, address_text, reference, hours, gps_lat, gps_lng, gps_captured_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING ${ESTAB_COLUMNS}`,
-    )
-    .get(
-      user.id,
-      name,
-      kind,
-      cnpj || null,
-      address,
-      str(body.reference),
-      str(body.hours),
-      gps.lat,
-      gps.lng,
-      gps.lat !== null ? new Date().toISOString() : null,
-    ) as EstablishmentRow;
+       VALUES (${user.id}, ${name}, ${kind}, ${cnpj || null}, ${address},
+         ${str(body.reference)}, ${str(body.hours)}, ${gps.lat}, ${gps.lng},
+         ${gps.lat !== null ? new Date().toISOString() : null})
+       RETURNING id, owner_id, name, kind, cnpj, address_text, reference, hours, gps_lat, gps_lng, gps_captured_at`;
+  const estab = inserted[0] as EstablishmentRow;
   return c.json({ ok: true, establishment: estab, ...publishStatus(estab) }, 201);
 });
 
 establishmentsApp.patch("/establishments/mine", requireMerchant, async (c) => {
   const user = c.get("user");
-  const current = getMine(user.id);
+  const current = await getMine(user.id);
   if (!current) {
     return c.json(
       { ok: false, code: "not_found", message: "Cadastre o estabelecimento antes de editar." },
@@ -238,35 +243,34 @@ establishmentsApp.patch("/establishments/mine", requireMerchant, async (c) => {
     return c.json({ ok: false, code: "invalid_body", message: "Nada para atualizar." }, 400);
   }
 
-  params.push(user.id);
-  const estab = getDb()
-    .query(
-      `UPDATE establishments SET ${updates.join(", ")},
-       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE owner_id = ? RETURNING ${ESTAB_COLUMNS}`,
-    )
-    .get(...params) as EstablishmentRow;
+  const whereIndex = params.length + 1;
+  const setList = updates
+    .map((u, i) => u.replace("?", `$${i + 1}`))
+    .join(", ");
+  const rows = await getDb().unsafe(
+    `UPDATE establishments SET ${setList}, updated_at = now() WHERE owner_id = $${whereIndex} RETURNING id, owner_id, name, kind, cnpj, address_text, reference, hours, gps_lat, gps_lng, gps_captured_at`,
+    [...params, user.id] as (string | number)[],
+  );
+  const estab = rows[0] as unknown as EstablishmentRow;
   return c.json({ ok: true, establishment: estab, ...publishStatus(estab) });
 });
 
 // Cadastro de itens do estabelecimento (nome e unidade). Compoem ofertas e
 // caixas surpresa na Fase 2.
-establishmentsApp.get("/items", requireMerchant, (c) => {
-  const estab = getMine(c.get("user").id);
+establishmentsApp.get("/items", requireMerchant, async (c) => {
+  const estab = await getMine(c.get("user").id);
   if (!estab) {
     return c.json(
       { ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes dos itens." },
       404,
     );
   }
-  const items = getDb()
-    .query("SELECT id, establishment_id, name, unit FROM items WHERE establishment_id = ? ORDER BY name")
-    .all(estab.id);
+  const items = await getDb()`SELECT id, establishment_id, name, unit FROM items WHERE establishment_id = ${estab.id} ORDER BY name`;
   return c.json({ ok: true, items });
 });
 
 establishmentsApp.post("/items", requireMerchant, async (c) => {
-  const estab = getMine(c.get("user").id);
+  const estab = await getMine(c.get("user").id);
   if (!estab) {
     return c.json(
       { ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes dos itens." },
@@ -282,23 +286,18 @@ establishmentsApp.post("/items", requireMerchant, async (c) => {
   if (!unit) {
     return c.json({ ok: false, code: "invalid_unit", message: "Informe a unidade do item." }, 400);
   }
-  const item = getDb()
-    .query(
-      `INSERT INTO items (establishment_id, name, unit) VALUES (?, ?, ?)
-       RETURNING id, establishment_id, name, unit`,
-    )
-    .get(estab.id, name, unit);
-  return c.json({ ok: true, item }, 201);
+  const inserted = await getDb()`INSERT INTO items (establishment_id, name, unit) VALUES (${estab.id}, ${name}, ${unit})
+       RETURNING id, establishment_id, name, unit`;
+  return c.json({ ok: true, item: inserted[0] }, 201);
 });
 
-function getOwnItem(estabId: number, itemId: number) {
-  return getDb()
-    .query("SELECT id, establishment_id, name, unit FROM items WHERE id = ? AND establishment_id = ?")
-    .get(itemId, estabId) as { id: number } | null;
+async function getOwnItem(estabId: number, itemId: number) {
+  const rows = await getDb()`SELECT id, establishment_id, name, unit FROM items WHERE id = ${itemId} AND establishment_id = ${estabId}`;
+  return (rows[0] as { id: number } | undefined) ?? null;
 }
 
 establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
-  const estab = getMine(c.get("user").id);
+  const estab = await getMine(c.get("user").id);
   if (!estab) {
     return c.json(
       { ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes dos itens." },
@@ -309,7 +308,7 @@ establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
   if (!Number.isInteger(itemId)) {
     return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
   }
-  if (!getOwnItem(estab.id, itemId)) {
+  if (!(await getOwnItem(estab.id, itemId))) {
     return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
   }
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -334,18 +333,19 @@ establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
   if (updates.length === 0) {
     return c.json({ ok: false, code: "invalid_body", message: "Nada para atualizar." }, 400);
   }
-  params.push(itemId);
-  const item = getDb()
-    .query(
-      `UPDATE items SET ${updates.join(", ")} WHERE id = ?
-       RETURNING id, establishment_id, name, unit`,
-    )
-    .get(...params);
-  return c.json({ ok: true, item });
+  const itemRows = await updateReturning(
+    "items",
+    updates,
+    params,
+    `id = ${itemId}`,
+    "id, establishment_id, name, unit",
+    false,
+  );
+  return c.json({ ok: true, item: itemRows[0] });
 });
 
-establishmentsApp.delete("/items/:id", requireMerchant, (c) => {
-  const estab = getMine(c.get("user").id);
+establishmentsApp.delete("/items/:id", requireMerchant, async (c) => {
+  const estab = await getMine(c.get("user").id);
   if (!estab) {
     return c.json(
       { ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes dos itens." },
@@ -356,9 +356,9 @@ establishmentsApp.delete("/items/:id", requireMerchant, (c) => {
   if (!Number.isInteger(itemId)) {
     return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
   }
-  if (!getOwnItem(estab.id, itemId)) {
+  if (!(await getOwnItem(estab.id, itemId))) {
     return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
   }
-  getDb().query("DELETE FROM items WHERE id = ?").run(itemId);
+  await getDb()`DELETE FROM items WHERE id = ${itemId}`;
   return c.json({ ok: true });
 });

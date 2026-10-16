@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { app } from "../src/api/index";
-import { migrate } from "../src/api/db";
+import { migrate, truncateAll } from "../src/api/db";
 
 let counter = 0;
 function uniqueEmail(): string {
@@ -23,7 +23,7 @@ function sessionCookie(res: Response): string {
   return setCookie.split(";")[0];
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("contas e sessao", () => {
   test("consumidor cria conta com raio e ja sai autenticado", async () => {

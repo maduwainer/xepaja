@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { app } from "../src/api/index";
-import { getDb, migrate } from "../src/api/db";
+import { getDb, migrate, truncateAll } from "../src/api/db";
 
 let counter = 5000;
 function uniqueEmail(): string {
@@ -104,7 +104,7 @@ function confirmPickup(cookie: string, code: string) {
   });
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("retirada", () => {
   test("codigo confirma uma vez; reuso e codigo errado falham; estoque segue retido", async () => {
@@ -174,12 +174,9 @@ describe("retirada", () => {
     const ra = await reserve(a.cookie, offerId);
     expect(ra.status).toBe(201);
     const ba = await ra.json();
-    const rowA = getDb()
-      .query("SELECT id FROM reservations WHERE consumer_id = ? ORDER BY id DESC LIMIT 1")
-      .get(a.id) as { id: number };
-    getDb()
-      .query("UPDATE reservations SET pickup_until = ? WHERE id = ?")
-      .run(new Date(Date.now() - 10 * 60_000).toISOString(), rowA.id);
+    const rowsA = await getDb()`SELECT id FROM reservations WHERE consumer_id = ${a.id} ORDER BY id DESC LIMIT 1`;
+    const rowA = rowsA[0] as { id: number };
+    await getDb()`UPDATE reservations SET pickup_until = ${new Date(Date.now() - 10 * 60_000).toISOString()} WHERE id = ${rowA.id}`;
     expect((await confirmPickup(merchant.cookie, ba.reservation.pickup_code)).status).toBe(200);
 
     // Alem da tolerancia (20 min): expira, conta falta e o codigo morre.
@@ -187,12 +184,9 @@ describe("retirada", () => {
     const rb = await reserve(b.cookie, offerId);
     expect(rb.status).toBe(201);
     const bb = await rb.json();
-    const rowB = getDb()
-      .query("SELECT id FROM reservations WHERE consumer_id = ? ORDER BY id DESC LIMIT 1")
-      .get(b.id) as { id: number };
-    getDb()
-      .query("UPDATE reservations SET pickup_until = ? WHERE id = ?")
-      .run(new Date(Date.now() - 20 * 60_000).toISOString(), rowB.id);
+    const rowsB = await getDb()`SELECT id FROM reservations WHERE consumer_id = ${b.id} ORDER BY id DESC LIMIT 1`;
+    const rowB = rowsB[0] as { id: number };
+    await getDb()`UPDATE reservations SET pickup_until = ${new Date(Date.now() - 20 * 60_000).toISOString()} WHERE id = ${rowB.id}`;
     expect((await confirmPickup(merchant.cookie, bb.reservation.pickup_code)).status).toBe(404);
     const me = await app.request("/api/auth/me", { headers: { Cookie: b.cookie } });
     expect((await me.json()).user.misses_since_unblock).toBe(1);

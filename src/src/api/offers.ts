@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { getDb } from "./db";
+import { getDb, type DbClient } from "./db";
 import { requireAuth, requireMerchant, type AppEnv } from "./auth";
 
 export const offersApp = new Hono<AppEnv>();
@@ -22,7 +22,7 @@ interface OfferRow {
   photo_path: string;
   total_units: number;
   price_cents: number;
-  is_free: number;
+  is_free: boolean;
   address_snapshot: string;
   gps_lat: number | null;
   gps_lng: number | null;
@@ -34,49 +34,33 @@ interface OfferRow {
   cancel_reason: string;
 }
 
-const OFFER_COLUMNS =
-  "id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason";
-
-function getEstablishment(ownerId: number) {
-  return getDb()
-    .query(
-      "SELECT id, address_text, gps_lat, gps_lng FROM establishments WHERE owner_id = ?",
-    )
-    .get(ownerId) as {
+async function getEstablishment(ownerId: number) {
+  const rows = await getDb()`SELECT id, address_text, gps_lat, gps_lng FROM establishments WHERE owner_id = ${ownerId}`;
+  return (rows[0] as {
     id: number;
     address_text: string;
     gps_lat: number | null;
     gps_lng: number | null;
-  } | null;
+  } | undefined) ?? null;
 }
 
-function getOwnOffer(estabId: number, offerId: number): OfferRow | null {
-  return (
-    (getDb()
-      .query(`SELECT ${OFFER_COLUMNS} FROM offers WHERE id = ? AND establishment_id = ?`)
-      .get(offerId, estabId) as OfferRow | null) ?? null
-  );
+async function getOwnOffer(estabId: number, offerId: number): Promise<OfferRow | null> {
+  const rows = await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId} AND establishment_id = ${estabId}`;
+  return (rows[0] as OfferRow | undefined) ?? null;
 }
 
 // RN-01: disponivel = total menos pendentes, confirmadas e retiradas.
-export function remainingUnits(offerId: number, total: number): number {
-  const row = getDb()
-    .query(
-      `SELECT COUNT(*) AS n FROM reservations
-       WHERE offer_id = ? AND state IN ('pendente','confirmada','retirada')`,
-    )
-    .get(offerId) as { n: number };
-  return Math.max(0, total - row.n);
+export async function remainingUnits(offerId: number, total: number, client?: DbClient): Promise<number> {
+  const db = client ?? getDb();
+  const rows = await db`SELECT COUNT(*)::int AS n FROM reservations
+       WHERE offer_id = ${offerId} AND state IN ('pendente','confirmada','retirada')`;
+  return Math.max(0, total - (rows[0] as { n: number }).n);
 }
 
-export function hasActiveReservations(offerId: number): boolean {
-  const row = getDb()
-    .query(
-      `SELECT COUNT(*) AS n FROM reservations
-       WHERE offer_id = ? AND state IN ('pendente','confirmada')`,
-    )
-    .get(offerId) as { n: number };
-  return row.n > 0;
+export async function hasActiveReservations(offerId: number): Promise<boolean> {
+  const rows = await getDb()`SELECT COUNT(*)::int AS n FROM reservations
+       WHERE offer_id = ${offerId} AND state IN ('pendente','confirmada')`;
+  return (rows[0] as { n: number }).n > 0;
 }
 
 // Esgotada e derivada, nao armazenada: publicada com zero restante exibe esgotada.
@@ -85,23 +69,16 @@ export function effectiveState(offer: OfferRow, remaining: number): string {
   return offer.state;
 }
 
-function serializeOffer(offer: OfferRow) {
+async function serializeOffer(offer: OfferRow) {
   const db = getDb();
-  const items = db
-    .query(
-      `SELECT oi.item_id, i.name, i.unit, oi.qty_per_unit
+  const items = await db`SELECT oi.item_id, i.name, i.unit, oi.qty_per_unit
        FROM offer_items oi JOIN items i ON i.id = oi.item_id
-       WHERE oi.offer_id = ? ORDER BY i.name`,
-    )
-    .all(offer.id);
-  const ctx = db
-    .query(
-      `SELECT e.name AS establishment_name, u.name AS merchant_name
+       WHERE oi.offer_id = ${offer.id} ORDER BY i.name`;
+  const ctxRows = await db`SELECT e.name AS establishment_name, u.name AS merchant_name
        FROM establishments e JOIN users u ON u.id = e.owner_id
-       WHERE e.id = ?`,
-    )
-    .get(offer.establishment_id) as { establishment_name: string; merchant_name: string };
-  const remaining = remainingUnits(offer.id, offer.total_units);
+       WHERE e.id = ${offer.establishment_id}`;
+  const ctx = ctxRows[0] as { establishment_name: string; merchant_name: string };
+  const remaining = await remainingUnits(offer.id, offer.total_units);
   return {
     ...offer,
     items,
@@ -124,10 +101,10 @@ function parseDate(value: unknown): string | null {
 }
 
 // RF-06: ao menos um item com quantidade positiva, de itens do proprio estabelecimento.
-function parseOfferItems(
+async function parseOfferItems(
   estabId: number,
   value: unknown,
-): { items: { item_id: number; qty_per_unit: number }[]; error: string | null } {
+): Promise<{ items: { item_id: number; qty_per_unit: number }[]; error: string | null }> {
   if (!Array.isArray(value) || value.length === 0) {
     return { items: [], error: "Inclua ao menos um item com quantidade positiva." };
   }
@@ -146,9 +123,7 @@ function parseOfferItems(
     if (typeof qty !== "number" || !Number.isFinite(qty) || qty <= 0) {
       return { items: [], error: "Quantidade de cada item precisa ser positiva." };
     }
-    const owned = db
-      .query("SELECT id FROM items WHERE id = ? AND establishment_id = ?")
-      .get(itemId, estabId);
+    const owned = (await db`SELECT id FROM items WHERE id = ${itemId} AND establishment_id = ${estabId}`)[0];
     if (!owned) {
       return { items: [], error: "Item invalido na composicao." };
     }
@@ -203,7 +178,7 @@ function parseCommon(body: Record<string, unknown>): {
 // RF-05/06/11: criacao como rascunho. Exige GPS do estabelecimento (can_publish).
 offersApp.post("/offers", requireMerchant, async (c) => {
   const user = c.get("user");
-  const estab = getEstablishment(user.id);
+  const estab = await getEstablishment(user.id);
   if (!estab) {
     return c.json(
       { ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes das ofertas." },
@@ -224,56 +199,37 @@ offersApp.post("/offers", requireMerchant, async (c) => {
   if (common.error) {
     return c.json({ ok: false, code: "invalid_offer", message: common.error }, 400);
   }
-  const parsedItems = parseOfferItems(estab.id, body.items);
+  const parsedItems = await parseOfferItems(estab.id, body.items);
   if (parsedItems.error) {
     return c.json({ ok: false, code: "invalid_items", message: parsedItems.error }, 400);
   }
 
   const db = getDb();
-  const create = db.transaction(() => {
-    const offer = db
-      .query(
-        `INSERT INTO offers
+  const offer = await db.begin(async (tx) => {
+    const inserted = await tx`INSERT INTO offers
          (establishment_id, title, kind, total_units, price_cents, is_free,
           address_snapshot, gps_lat, gps_lng,
           available_from, pickup_from, pickup_until, storage_notes, state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rascunho')
-         RETURNING ${OFFER_COLUMNS}`,
-      )
-      .get(
-        estab.id,
-        common.title,
-        common.kind,
-        common.total_units,
-        common.price_cents,
-        common.is_free ? 1 : 0,
-        estab.address_text,
-        estab.gps_lat,
-        estab.gps_lng,
-        common.available_from,
-        common.pickup_from,
-        common.pickup_until,
-        common.storage_notes,
-      ) as OfferRow;
+         VALUES (${estab.id}, ${common.title}, ${common.kind}, ${common.total_units},
+          ${common.price_cents}, ${common.is_free}, ${estab.address_text},
+          ${estab.gps_lat}, ${estab.gps_lng}, ${common.available_from},
+          ${common.pickup_from}, ${common.pickup_until}, ${common.storage_notes}, 'rascunho')
+         RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+    const created = inserted[0] as OfferRow;
     for (const it of parsedItems.items) {
-      db.query("INSERT INTO offer_items (offer_id, item_id, qty_per_unit) VALUES (?, ?, ?)")
-        .run(offer.id, it.item_id, it.qty_per_unit);
+      await tx`INSERT INTO offer_items (offer_id, item_id, qty_per_unit) VALUES (${created.id}, ${it.item_id}, ${it.qty_per_unit})`;
     }
-    db.query("INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ?, 'created', ?)")
-      .run(offer.id, user.id);
-    return offer;
+    await tx`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${created.id}, 'created', ${user.id})`;
+    return created;
   });
-  const offer = create();
-  return c.json({ ok: true, offer: serializeOffer(offer) }, 201);
+  return c.json({ ok: true, offer: await serializeOffer(offer) }, 201);
 });
 
-offersApp.get("/offers/mine", requireMerchant, (c) => {
-  const estab = getEstablishment(c.get("user").id);
+offersApp.get("/offers/mine", requireMerchant, async (c) => {
+  const estab = await getEstablishment(c.get("user").id);
   if (!estab) return c.json({ ok: true, offers: [] });
-  const offers = getDb()
-    .query(`SELECT ${OFFER_COLUMNS} FROM offers WHERE establishment_id = ? ORDER BY id DESC`)
-    .all(estab.id) as OfferRow[];
-  return c.json({ ok: true, offers: offers.map(serializeOffer) });
+  const offers = await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE establishment_id = ${estab.id} ORDER BY id DESC` as OfferRow[];
+  return c.json({ ok: true, offers: await Promise.all(offers.map(serializeOffer)) });
 });
 
 // Distancia estimada em km (haversine). RN-09: a partir da localizacao atual
@@ -293,7 +249,7 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): nu
 // Vigente = publicada, com janela de oferta aberta e retirada ainda nao terminada.
 // A posicao do consumidor vem so por query e nunca e persistida.
 // Esgotadas (restante zero) nao aparecem como disponiveis.
-offersApp.get("/offers/nearby", requireAuth, (c) => {
+offersApp.get("/offers/nearby", requireAuth, async (c) => {
   const user = c.get("user");
   const lat = Number(c.req.query("lat"));
   const lng = Number(c.req.query("lng"));
@@ -318,17 +274,13 @@ offersApp.get("/offers/nearby", requireAuth, (c) => {
   const now = new Date().toISOString();
   const latDelta = radius / 111;
   const lngDelta = radius / (111 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
-  const rows = getDb()
-    .query(
-      `SELECT o.* FROM offers o
+  const rows = await getDb()`SELECT o.* FROM offers o
        WHERE o.state = 'publicada'
-         AND o.available_from <= ? AND o.pickup_until >= ?
-         AND o.gps_lat BETWEEN ? AND ?
-         AND o.gps_lng BETWEEN ? AND ?`,
-    )
-    .all(now, now, lat - latDelta, lat + latDelta, lng - lngDelta, lng + lngDelta) as OfferRow[];
+         AND o.available_from <= ${now}::timestamptz AND o.pickup_until >= ${now}::timestamptz
+         AND o.gps_lat BETWEEN ${lat - latDelta} AND ${lat + latDelta}
+         AND o.gps_lng BETWEEN ${lng - lngDelta} AND ${lng + lngDelta}` as OfferRow[];
 
-  const nearby = rows
+  const withDistance = rows
     .map((offer) => {
       const distance_km =
         offer.gps_lat === null || offer.gps_lng === null
@@ -336,47 +288,57 @@ offersApp.get("/offers/nearby", requireAuth, (c) => {
           : haversineKm(lat, lng, offer.gps_lat, offer.gps_lng);
       return { offer, distance_km };
     })
-    .filter(({ offer, distance_km }) => distance_km <= radius && remainingUnits(offer.id, offer.total_units) > 0)
-    .sort((a, b) => a.distance_km - b.distance_km)
-    .map(({ offer, distance_km }) => ({
-      ...serializeOffer(offer),
+    .filter(({ distance_km }) => distance_km <= radius);
+  const available = (
+    await Promise.all(
+      withDistance.map(async ({ offer, distance_km }) => ({
+        offer,
+        distance_km,
+        remaining: await remainingUnits(offer.id, offer.total_units),
+      })),
+    )
+  )
+    .filter(({ remaining }) => remaining > 0)
+    .sort((a, b) => a.distance_km - b.distance_km);
+  const nearby = await Promise.all(
+    available.map(async ({ offer, distance_km }) => ({
+      ...(await serializeOffer(offer)),
       distance_km: Math.round(distance_km * 10) / 10,
-    }));
+    })),
+  );
   return c.json({ ok: true, offers: nearby });
 });
 
 // RF-14: detalhe com foto, composicao, disponibilidade, preco, endereco,
 // periodo e orientacoes. Rascunho de outro so o dono ve.
-offersApp.get("/offers/:id", requireAuth, (c) => {
+offersApp.get("/offers/:id", requireAuth, async (c) => {
   const user = c.get("user");
   const offerId = Number(c.req.param("id"));
   if (!Number.isInteger(offerId)) {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
-  const offer = getDb()
-    .query(`SELECT ${OFFER_COLUMNS} FROM offers WHERE id = ?`)
-    .get(offerId) as OfferRow | null;
+  const found = await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId}`;
+  const offer = (found[0] as OfferRow | undefined) ?? null;
   if (!offer) {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
-  const owner = getDb()
-    .query("SELECT owner_id FROM establishments WHERE id = ?")
-    .get(offer.establishment_id) as { owner_id: number } | null;
+  const ownerRows = await getDb()`SELECT owner_id FROM establishments WHERE id = ${offer.establishment_id}`;
+  const owner = (ownerRows[0] as { owner_id: number } | undefined) ?? null;
   if ((!owner || owner.owner_id !== user.id) && offer.state !== "publicada") {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
-  return c.json({ ok: true, offer: serializeOffer(offer) });
+  return c.json({ ok: true, offer: await serializeOffer(offer) });
 });
 
 // Publicar: valida foto, composicao, preco e coerencia de datas; congela snapshot.
-offersApp.post("/offers/:id/publish", requireMerchant, (c) => {
+offersApp.post("/offers/:id/publish", requireMerchant, async (c) => {
   const user = c.get("user");
-  const estab = getEstablishment(user.id);
+  const estab = await getEstablishment(user.id);
   if (!estab) {
     return c.json({ ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes das ofertas." }, 404);
   }
   const offerId = Number(c.req.param("id"));
-  const offer = Number.isInteger(offerId) ? getOwnOffer(estab.id, offerId) : null;
+  const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
@@ -386,9 +348,7 @@ offersApp.post("/offers/:id/publish", requireMerchant, (c) => {
   if (!offer.photo_path) {
     return c.json({ ok: false, code: "photo_required", message: "Inclua uma foto antes de publicar." }, 422);
   }
-  const items = getDb()
-    .query("SELECT qty_per_unit FROM offer_items WHERE offer_id = ?")
-    .all(offer.id) as { qty_per_unit: number }[];
+  const items = await getDb()`SELECT qty_per_unit FROM offer_items WHERE offer_id = ${offer.id}` as { qty_per_unit: number }[];
   if (items.length === 0 || items.some((i) => !(i.qty_per_unit > 0))) {
     return c.json({ ok: false, code: "items_required", message: "Inclua ao menos um item com quantidade positiva." }, 422);
   }
@@ -407,17 +367,13 @@ offersApp.post("/offers/:id/publish", requireMerchant, (c) => {
   }
 
   const db = getDb();
-  const updated = db
-    .query(
-      `UPDATE offers SET state = 'publicada',
-       address_snapshot = ?, gps_lat = ?, gps_lng = ?,
-       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id = ? RETURNING ${OFFER_COLUMNS}`,
-    )
-    .get(estab.address_text, estab.gps_lat, estab.gps_lng, offer.id) as OfferRow;
-  db.query("INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ?, 'published', ?)")
-    .run(offer.id, user.id);
-  return c.json({ ok: true, offer: serializeOffer(updated) });
+  const updatedRows = await db`UPDATE offers SET state = 'publicada',
+       address_snapshot = ${estab.address_text}, gps_lat = ${estab.gps_lat}, gps_lng = ${estab.gps_lng},
+       updated_at = now()
+       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+  const updated = updatedRows[0] as OfferRow;
+  await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'published', ${user.id})`;
+  return c.json({ ok: true, offer: await serializeOffer(updated) });
 });
 
 // RF-08: sem reservas a edicao e livre; com reservas ativas, so foto (via
@@ -429,12 +385,12 @@ const MATERIAL_FIELDS = [
 
 offersApp.patch("/offers/:id", requireMerchant, async (c) => {
   const user = c.get("user");
-  const estab = getEstablishment(user.id);
+  const estab = await getEstablishment(user.id);
   if (!estab) {
     return c.json({ ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes das ofertas." }, 404);
   }
   const offerId = Number(c.req.param("id"));
-  const offer = Number.isInteger(offerId) ? getOwnOffer(estab.id, offerId) : null;
+  const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
@@ -449,7 +405,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     return c.json({ ok: false, code: "invalid_body", message: "Nada para atualizar." }, 400);
   }
 
-  if (hasActiveReservations(offer.id)) {
+  if (await hasActiveReservations(offer.id)) {
     const attempted = MATERIAL_FIELDS.filter((f) => body[f] !== undefined);
     if (attempted.length > 0) {
       return c.json(
@@ -464,18 +420,14 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     if (body.storage_notes === undefined) {
       return c.json({ ok: false, code: "invalid_body", message: "Nada para atualizar." }, 400);
     }
-    const updated = getDb()
-      .query(
-        `UPDATE offers SET storage_notes = ?,
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ? RETURNING ${OFFER_COLUMNS}`,
-      )
-      .get(str(body.storage_notes), offer.id) as OfferRow;
-    return c.json({ ok: true, offer: serializeOffer(updated) });
+    const noteRows = await getDb()`UPDATE offers SET storage_notes = ${str(body.storage_notes)},
+         updated_at = now()
+         WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+    return c.json({ ok: true, offer: await serializeOffer(noteRows[0] as OfferRow) });
   }
 
   const updates: string[] = [];
-  const params: (string | number | null)[] = [];
+  const params: (string | number | boolean | null)[] = [];
   let itemsUpdate: { item_id: number; qty_per_unit: number }[] | null = null;
 
   if (body.title !== undefined) {
@@ -491,7 +443,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     params.push(kind);
   }
   if (body.items !== undefined) {
-    const parsed = parseOfferItems(estab.id, body.items);
+    const parsed = await parseOfferItems(estab.id, body.items);
     if (parsed.error) return c.json({ ok: false, code: "invalid_items", message: parsed.error }, 400);
     itemsUpdate = parsed.items;
   }
@@ -506,7 +458,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
   if (body.price_cents !== undefined || body.is_free !== undefined) {
     const priceRaw = body.price_cents === undefined ? offer.price_cents : body.price_cents;
     const price = typeof priceRaw === "string" ? Number(priceRaw) : priceRaw;
-    const isFreeRaw = body.is_free === undefined ? offer.is_free === 1 : body.is_free;
+    const isFreeRaw = body.is_free === undefined ? offer.is_free : body.is_free;
     const isFree = isFreeRaw === true || isFreeRaw === 1 || isFreeRaw === "true";
     if (typeof price !== "number" || !Number.isInteger(price) || price < 0) {
       return c.json({ ok: false, code: "invalid_price", message: "Preco precisa ser zero ou maior." }, 400);
@@ -515,7 +467,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
       return c.json({ ok: false, code: "invalid_price", message: "Oferta gratis precisa ter preco zero." }, 400);
     }
     updates.push("price_cents = ?", "is_free = ?");
-    params.push(price, isFree ? 1 : 0);
+    params.push(price, isFree);
   }
   for (const field of ["available_from", "pickup_from", "pickup_until"] as const) {
     if (body[field] !== undefined) {
@@ -537,38 +489,33 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
   }
 
   const db = getDb();
-  const apply = db.transaction(() => {
+  const setList = updates.map((u, i) => u.replace("?", `$${i + 1}`)).join(", ");
+  const updated = await db.begin(async (tx) => {
     if (itemsUpdate) {
-      db.query("DELETE FROM offer_items WHERE offer_id = ?").run(offer.id);
+      await tx`DELETE FROM offer_items WHERE offer_id = ${offer.id}`;
       for (const it of itemsUpdate) {
-        db.query("INSERT INTO offer_items (offer_id, item_id, qty_per_unit) VALUES (?, ?, ?)")
-          .run(offer.id, it.item_id, it.qty_per_unit);
+        await tx`INSERT INTO offer_items (offer_id, item_id, qty_per_unit) VALUES (${offer.id}, ${it.item_id}, ${it.qty_per_unit})`;
       }
     }
-    params.push(offer.id);
-    return db
-      .query(
-        `UPDATE offers SET ${updates.length > 0 ? updates.join(", ") + "," : ""}
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ? RETURNING ${OFFER_COLUMNS}`,
-      )
-      .get(...params) as OfferRow;
+    const rows = await tx.unsafe(
+      `UPDATE offers SET ${setList ? setList + "," : ""} updated_at = now() WHERE id = $${params.length + 1} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`,
+      [...params, offer.id] as (string | number | boolean | null)[],
+    );
+    return rows[0] as unknown as OfferRow;
   });
-  const updated = apply();
-  db.query("INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ?, 'updated', ?)")
-    .run(offer.id, user.id);
-  return c.json({ ok: true, offer: serializeOffer(updated) });
+  await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'updated', ${user.id})`;
+  return c.json({ ok: true, offer: await serializeOffer(updated) });
 });
 
 // RF-07: encerrar. Encerrada nao aceita novas reservas.
-offersApp.post("/offers/:id/encerrar", requireMerchant, (c) => {
+offersApp.post("/offers/:id/encerrar", requireMerchant, async (c) => {
   const user = c.get("user");
-  const estab = getEstablishment(user.id);
+  const estab = await getEstablishment(user.id);
   if (!estab) {
     return c.json({ ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes das ofertas." }, 404);
   }
   const offerId = Number(c.req.param("id"));
-  const offer = Number.isInteger(offerId) ? getOwnOffer(estab.id, offerId) : null;
+  const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
@@ -576,28 +523,24 @@ offersApp.post("/offers/:id/encerrar", requireMerchant, (c) => {
     return c.json({ ok: false, code: "invalid_state", message: "Oferta ja encerrada, cancelada ou expirada." }, 409);
   }
   const db = getDb();
-  const updated = db
-    .query(
-      `UPDATE offers SET state = 'encerrada',
-       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id = ? RETURNING ${OFFER_COLUMNS}`,
-    )
-    .get(offer.id) as OfferRow;
-  db.query("INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ?, 'closed', ?)")
-    .run(offer.id, user.id);
-  return c.json({ ok: true, offer: serializeOffer(updated) });
+  const closedRows = await db`UPDATE offers SET state = 'encerrada',
+       updated_at = now()
+       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+  const updated = closedRows[0] as OfferRow;
+  await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'closed', ${user.id})`;
+  return c.json({ ok: true, offer: await serializeOffer(updated) });
 });
 
 // RF-10/RN-13: cancelar encerra pendentes e confirmadas nao retiradas, com motivo
 // e avisos, sem contar falta. Atomicidade em transacao.
 offersApp.post("/offers/:id/cancel", requireMerchant, async (c) => {
   const user = c.get("user");
-  const estab = getEstablishment(user.id);
+  const estab = await getEstablishment(user.id);
   if (!estab) {
     return c.json({ ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes das ofertas." }, 404);
   }
   const offerId = Number(c.req.param("id"));
-  const offer = Number.isInteger(offerId) ? getOwnOffer(estab.id, offerId) : null;
+  const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
@@ -611,45 +554,27 @@ offersApp.post("/offers/:id/cancel", requireMerchant, async (c) => {
   }
 
   const db = getDb();
-  const result = db.transaction(() => {
-    const updated = db
-      .query(
-        `UPDATE offers SET state = 'cancelada', cancel_reason = ?,
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ? RETURNING ${OFFER_COLUMNS}`,
-      )
-      .get(reason, offer.id) as OfferRow;
-    const affected = db
-      .query(
-        `SELECT id, consumer_id FROM reservations
-         WHERE offer_id = ? AND state IN ('pendente','confirmada')`,
-      )
-      .all(offer.id) as { id: number; consumer_id: number }[];
+  const result = await db.begin(async (tx) => {
+    const updatedRows = await tx`UPDATE offers SET state = 'cancelada', cancel_reason = ${reason},
+         updated_at = now()
+         WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+    const affected = await tx`SELECT id, consumer_id FROM reservations
+         WHERE offer_id = ${offer.id} AND state IN ('pendente','confirmada')` as { id: number; consumer_id: number }[];
     for (const r of affected) {
-      db.query(
-        `UPDATE reservations SET state = 'cancelada', cancel_reason = ?,
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`,
-      ).run(`Oferta cancelada: ${reason}`, r.id);
-      db.query(
-        `INSERT INTO notices (user_id, kind, offer_id, reservation_id, body)
-         VALUES (?, 'offer_cancelled', ?, ?, ?)`,
-      ).run(
-        r.consumer_id,
-        offer.id,
-        r.id,
-        `A oferta "${offer.title}" foi cancelada pelo comerciante: ${reason}. Nenhuma falta foi registrada.`,
-      );
-      db.query("INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('reservation', ?, 'cancelled_offer', ?)")
-        .run(r.id, user.id);
+      await tx`UPDATE reservations SET state = 'cancelada', cancel_reason = ${`Oferta cancelada: ${reason}`},
+         updated_at = now() WHERE id = ${r.id}`;
+      await tx`INSERT INTO notices (user_id, kind, offer_id, reservation_id, body)
+         VALUES (${r.consumer_id}, 'offer_cancelled', ${offer.id}, ${r.id},
+         ${`A oferta "${offer.title}" foi cancelada pelo comerciante: ${reason}. Nenhuma falta foi registrada.`})`;
+      await tx`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('reservation', ${r.id}, 'cancelled_offer', ${user.id})`;
     }
-    db.query("INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ?, 'cancelled', ?)")
-      .run(offer.id, user.id);
-    return { offer: updated, cancelled: affected.length };
-  })();
+    await tx`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'cancelled', ${user.id})`;
+    return { offer: updatedRows[0] as OfferRow, cancelled: affected.length };
+  });
 
   return c.json({
     ok: true,
-    offer: serializeOffer(result.offer),
+    offer: await serializeOffer(result.offer),
     cancelled_reservations: result.cancelled,
   });
 });
@@ -658,12 +583,12 @@ offersApp.post("/offers/:id/cancel", requireMerchant, async (c) => {
 // so o caminho. Aceita jpeg, png e webp ate 5 MB. Editavel mesmo com reservas.
 offersApp.post("/offers/:id/photo", requireMerchant, async (c) => {
   const user = c.get("user");
-  const estab = getEstablishment(user.id);
+  const estab = await getEstablishment(user.id);
   if (!estab) {
     return c.json({ ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes das ofertas." }, 404);
   }
   const offerId = Number(c.req.param("id"));
-  const offer = Number.isInteger(offerId) ? getOwnOffer(estab.id, offerId) : null;
+  const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
     return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
   }
@@ -693,23 +618,20 @@ offersApp.post("/offers/:id/photo", requireMerchant, async (c) => {
     });
   }
   const db = getDb();
-  const updated = db
-    .query(
-      `UPDATE offers SET photo_path = ?,
-       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id = ? RETURNING ${OFFER_COLUMNS}`,
-    )
-    .get(`${UPLOAD_DIR}/${filename}`, offer.id) as OfferRow;
-  db.query("INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ?, 'photo_updated', ?)")
-    .run(offer.id, user.id);
-  return c.json({ ok: true, offer: serializeOffer(updated) });
+  const photoRows = await db`UPDATE offers SET photo_path = ${`${UPLOAD_DIR}/${filename}`},
+       updated_at = now()
+       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+  const updated = photoRows[0] as OfferRow;
+  await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'photo_updated', ${user.id})`;
+  return c.json({ ok: true, offer: await serializeOffer(updated) });
 });
 
 offersApp.get("/offers/:id/photo", requireAuth, async (c) => {
   const offerId = Number(c.req.param("id"));
-  const offer = Number.isInteger(offerId)
-    ? (getDb().query(`SELECT ${OFFER_COLUMNS} FROM offers WHERE id = ?`).get(offerId) as OfferRow | null)
-    : null;
+  const photoFound = Number.isInteger(offerId)
+    ? await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId}`
+    : [];
+  const offer = (photoFound[0] as OfferRow | undefined) ?? null;
   if (!offer || !offer.photo_path) {
     return c.json({ ok: false, code: "not_found", message: "Foto nao encontrada." }, 404);
   }

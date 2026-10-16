@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { app } from "../src/api/index";
-import { migrate } from "../src/api/db";
+import { migrate, truncateAll } from "../src/api/db";
 
 let counter = 2000;
 function uniqueEmail(): string {
@@ -74,7 +74,7 @@ function pngFile(): File {
   return new File([bytes], "foto.png", { type: "image/png" });
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("ofertas", () => {
   test("sem GPS nao cria oferta (422)", async () => {

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { migrate } from "./db";
+import { getDb, migrate } from "./db";
 import type { HealthResponse } from "../shared/types";
 import { usersApp } from "./users";
 import { establishmentsApp } from "./establishments";
@@ -13,13 +13,18 @@ import type { AppEnv } from "./auth";
 
 export const app = new Hono<AppEnv>();
 
-app.get("/api/health", (c) => {
+app.get("/api/health", async (c) => {
+  try {
+    await getDb()`SELECT 1`;
+  } catch {
+    return c.json({ ok: false, service: "xepaja", db: "down" }, 503);
+  }
   const body: HealthResponse = {
     ok: true,
     service: "xepaja",
     time: new Date().toISOString(),
   };
-  return c.json(body);
+  return c.json({ ...body, db: "up" });
 });
 
 app.route("/api", usersApp);
@@ -59,7 +64,7 @@ app.notFound(async (c) => {
 });
 
 if (import.meta.main) {
-  migrate();
+  await migrate();
   const port = Number(process.env.PORT ?? 3000);
   Bun.serve({ port, fetch: app.fetch });
   console.log(`xepaja api up on http://localhost:${port}`);

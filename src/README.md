@@ -1,22 +1,37 @@
 # XepaJá - src
 
-Fundacao Fase 0: app React servido pela API Hono, com sqlite.
+Fundacao Fase 0: app React servido pela API Hono, com PostgreSQL via Docker.
+
+## Banco de dados
+
+Persistencia em PostgreSQL 16 (imagem postgres:16-alpine). Suba antes de tudo:
+
+- docker compose up -d db: sobe o Postgres local (volume xepaja-pgdata, porta 5432).
+- Copie .env.example para .env e ajuste se preciso. DATABASE_URL aponta para o banco de dev; DATABASE_URL_TEST para o banco de teste dedicado (xepaja_test).
+- A API e o watch aguardam o banco e rodam o migrate sozinhos; GET /api/health retorna db: up e 503 com db: down se o banco cair.
 
 ## Rodar
 
 Todos os comandos a partir desta pasta (src), sempre com bun:
 
 - bun install: instala dependencias.
-- bun run watch: sobe back e front com live reload. Abra http://localhost:3000. Equivale ao watch do uberpath, adaptado: API reinicia sozinha a cada save (bun --watch) e o front recompila a cada save (bun build --watch); o navegador recarrega sozinho em localhost.
+- bun run watch: sobe back e front com live reload (aguarda o Postgres e roda o migrate antes). Abra http://localhost:3000. Equivale ao watch do uberpath, adaptado: API reinicia sozinha a cada save (bun --watch) e o front recompila a cada save (bun build --watch); o navegador recarrega sozinho em localhost.
 - bun run watch:api: so a API com restart automatico.
 - bun run watch:web: so o rebuild do front a cada save.
 - bun run dev: build unico e sobe a API uma vez, sem watch.
 - bun run build: build de producao do front em public/dist.
-- bun test: testes.
-- bun run db:migrate: cria ou atualiza o sqlite em data/xepaja.sqlite.
+- bun test: recria o banco xepaja_test do zero (tools/reset-test-db.ts) e roda a suite contra ele, sem tocar no banco de dev.
+- bun run db:migrate: cria ou atualiza o schema no banco da DATABASE_URL.
+- bun run seed: cadastros de exemplo contra a API local (com o watch rodando).
 - bunx tsc --noEmit: checagem de tipos.
 
-Variaveis: PORT define a porta da API (padrao 3000). XEPAJA_DB troca o caminho do sqlite (padrao data/xepaja.sqlite); o script de teste ja aponta para data/xepaja-test.sqlite para nao poluir o banco de dev.
+Variaveis: PORT define a porta da API (padrao 3000). XEPAJA_URL e a URL publica usada pelo seed (padrao http://localhost:3000; na VPS, https://seu-dominio).
+
+## Demo na VPS
+
+- Exija portas 80/443 e DNS apontando para a VPS; defina DOMAIN e XEPAJA_URL=https://<dominio> no .env.
+- docker compose -f compose.yaml -f compose.prod.yaml up -d --build: sobe db + app + Caddy (TLS automatico).
+- Na VPS, rode o seed contra a URL publica: XEPAJA_URL=https://<dominio> bun run seed.
 
 ## Endpoints (Fase 1)
 
@@ -51,7 +66,7 @@ Variaveis: PORT define a porta da API (padrao 3000). XEPAJA_DB troca o caminho d
 
 ## Estrutura
 
-- src/api: backend Hono e sqlite (db.ts com schema e migrate, index.ts com rotas e estaticos).
+- src/api: backend Hono e PostgreSQL (db.ts com schema e migrate, index.ts com rotas e estaticos).
 - src/web: frontend React (main.tsx, App.tsx).
 - src/shared: tipos usados pelos dois lados.
 - public: shell PWA (index.html, manifest.webmanifest, sw.js, offline.html, styles.css, icons).

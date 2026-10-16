@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { app } from "../src/api/index";
-import { migrate } from "../src/api/db";
+import { migrate, truncateAll } from "../src/api/db";
 
 let counter = 3000;
 function uniqueEmail(): string {
@@ -113,7 +113,7 @@ async function publishedOffer(cookie: string, itemId: number, extra?: Record<str
   return offer.id;
 }
 
-beforeAll(() => migrate());
+beforeAll(async () => { await migrate(); await truncateAll(); });
 
 describe("descoberta", () => {
   test("dentro do raio aparece com distancia; fora nao aparece", async () => {

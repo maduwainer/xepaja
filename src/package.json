@@ -9,12 +9,13 @@
     "watch:web": "bun build src/web/main.tsx --outdir=public/dist --target=browser --sourcemap=inline --watch",
     "build": "bun run tools/build.ts",
     "seed": "bun tools/seed.ts",
-    "test": "rm -f data/xepaja-test.sqlite* && XEPAJA_DB=data/xepaja-test.sqlite bun test",
+    "test": "XEPAJA_TEST=1 bun tools/reset-test-db.ts && XEPAJA_TEST=1 bun test",
     "db:migrate": "bun src/api/db.ts",
     "check": "bunx tsc --noEmit && echo \"tsc ok\""
   },
   "dependencies": {
     "hono": "^4.13.13",
+    "postgres": "^3.4.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "web-push": "^3.6.7"

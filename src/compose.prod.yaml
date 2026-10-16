@@ -1,0 +1,29 @@
+# Override de producao/demo na VPS: Caddy com TLS automatico a frente da app.
+# Uso: DOMAIN=feira.exemplo.com docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+# Requer portas 80/443 liberadas e DNS apontando para a VPS. Local sem
+# dominio: nao use este arquivo (suba so db + bun run watch).
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - xepaja-caddy-data:/data
+      - xepaja-caddy-config:/config
+    environment:
+      DOMAIN: ${DOMAIN:?informe DOMAIN no .env para o override de producao}
+
+  # Na VPS a app nao publica a porta direta; so o Caddy atende 80/443.
+  app:
+    ports: []
+    environment:
+      COOKIE_SECURE: "1"
+
+volumes:
+  xepaja-caddy-data:
+  xepaja-caddy-config:

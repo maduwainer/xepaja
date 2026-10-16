@@ -1,0 +1,5 @@
+# Caddy da demo/prod na VPS. DOMAIN vem do .env (compose.prod.yaml).
+# TLS automatico via Let's Encrypt; a app segue em http interno.
+{$DOMAIN} {
+	reverse_proxy app:3000
+}
