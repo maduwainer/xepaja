@@ -25,13 +25,13 @@ Nao trocar sem falar com o dono do projeto:
 - Persistencia em PostgreSQL via Docker (imagem postgres:16-alpine, compose.yaml na pasta src). Nao usar sqlite, mysql ou outro banco para persistir dados do servidor. Transacoes no banco para atomicidade de reserva e auditoria de transicoes. SQLite segue admitido apenas como eventual cache local futuro no cliente para o PWA offline, sem codigo para isso nesta entrega.
 - PWA com HTTPS, manifesto e service worker, mais tela de indisponibilidade quando a conexao cair. Reserva e alteracao de estoque exigem confirmacao online; sem rede nao ha confirmacao falsa.
 
-Codigo do projeto fica em src. Documentacao de referencia fica em docs.
+Codigo do projeto fica em src/api, src/web e src/shared; ferramentas em tools, testes em tests, shell PWA em public. Documentacao de referencia fica em docs.
 
 ## Meta de DX: bun run watch
 
 Requisito de fluxo de desenvolvimento, espelhado no watch do projeto irmao uberpath (script watch em package.json que delega para tools/build.ts com --watch), adaptado para a stack XepaJa:
 
-- A partir de src, o comando bun run watch sobe back e front juntos com live reload: a API Hono reinicia sozinha a cada save via bun --watch e o front React recompila a cada save via bun build --watch para public/dist.
+- A partir da raiz do repo, o comando bun run watch sobe back e front juntos com live reload: a API Hono reinicia sozinha a cada save via bun --watch e o front React recompila a cada save via bun build --watch para public/dist.
 - O navegador recarrega sozinho em localhost por um poller embutido em public/index.html que observa o bundle; em producao ele fica inativo.
 - Comandos de apoio: bun run watch:api (so API), bun run watch:web (so rebuild do front), bun run dev (build unico sem watch), bun run build (build de producao), bun test (recria o banco xepaja_test do zero a cada rodada via tools/reset-test-db.ts, sem tocar no banco de dev), bun run db:migrate, bun run seed (cadastros de exemplo, com o watch rodando). Antes de tudo: docker compose up -d db e .env a partir de .env.example (DATABASE_URL de dev, DATABASE_URL_TEST de teste). O watch aguarda o Postgres e roda o migrate sozinho; GET /api/health confere o banco (db: up, ou 503 com db: down).
 - Orquestracao em tools/dev.ts: dois processos com logs herdados e encerramento conjunto em SIGINT ou SIGTERM.
@@ -162,5 +162,5 @@ Regra de QA para este projeto: todo teste de interface passa pelo Playwright MCP
 
 - Usar forward slashes / em todos os paths, inclusive no Windows: codigo, comandos, buscas e links em markdown. O Windows aceita / normalmente e isso mantem tudo portatil.
 - Nao usar negrito ou italico em arquivos markdown.
-- Scripts one-off e experimentos vao em src/tmp/ e rodam de la, de preferencia com TypeScript e Bun. Nao espalhar scripts avulsos pelo repo; src/tmp/ e ignorado no git.
+- Scripts one-off e experimentos vao em tmp/ e rodam de la, de preferencia com TypeScript e Bun. Nao espalhar scripts avulsos pelo repo; tmp/ e ignorado no git.
 - No Git Bash do Windows, usar python ou py -3, nunca python3 (o stub da Microsoft Store quebra).
