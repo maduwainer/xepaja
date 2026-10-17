@@ -6,10 +6,6 @@ out
 dist
 *.tgz
 
-# runtime (fotos, chaves VAPID; nunca versionar)
-data/uploads/
-data/vapid.json
-
 # code coverage
 coverage
 *.lcov

@@ -49,7 +49,7 @@ Front React e API Hono no mesmo processo Bun; PostgreSQL em container com transa
 - `tests/` — suíte de QA dos critérios de aceitação
 - `public/` — shell PWA (manifesto, service worker, seed-photos demo); `public/dist` é o bundle gerado
 - `data/` — uploads e chaves VAPID (gerado em runtime, fora do git; o banco mora no volume Docker)
-- `docs/` — referência congelada e screenshots locais
+- `docs/` — screenshots locais (requisitos originais fora do repo, com o dono do projeto)
 - `.pi/mcp.json` — config do Playwright MCP para QA (ver AGENTS.md)
 - `compose.yaml` (db + app), `compose.prod.yaml` + `Caddyfile` (TLS na VPS), `Dockerfile`
 
@@ -80,7 +80,7 @@ Pré-requisitos: Bun 1.x, Docker, Node com npx e Chrome instalado. Todos os coma
 - Contas demo do seed: `comercio-banca@exemplo.com`, `cliente-zeca@exemplo.com` e outras em `tools/seed.ts` (senhas no próprio arquivo, só para demo local).
 - QA de interface via Playwright MCP: no agent pi, conceda trust ao projeto para ativar `.pi/mcp.json` e confira em `/mcp` que `playwright` conectou.
 
-Variáveis de ambiente (ver .env.example): `PORT` (padrão 3000), `DATABASE_URL` e `DATABASE_URL_TEST`, `XEPAJA_URL` (padrão http://localhost:3000, usada pelo seed), `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` (sem elas, chaves geradas uma vez em `data/vapid.json`), `SESSION_TTL_DAYS` (padrão 7), `COOKIE_SECURE=1` (cookies seguros em produção HTTPS).
+Variáveis de ambiente (ver .env.example): `PORT` (padrão 3000), `DATABASE_URL` e `DATABASE_URL_TEST`, `POSTGRES_*` e `APP_PORT` do compose, `DOMAIN` para o override de prod, `XEPAJA_URL` (padrão http://localhost:3000, usada pelo seed), `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` (sem elas, chaves geradas uma vez em `data/vapid.json`), `SESSION_TTL_DAYS` (padrão 7), `COOKIE_SECURE=1` (cookies seguros em produção HTTPS).
 
 ## Demo na VPS
 
