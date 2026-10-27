@@ -127,7 +127,7 @@ export function NoticesView() {
       {notices.length === 0 && <p className="muted">Nenhum aviso.</p>}
       <ul className="list">
         {notices.map((n) => (
-          <li key={n.id} className="list-row">
+          <li key={n.id} className={n.read_at ? "list-row is-read" : "list-row"}>
             <span>
               {n.read_at ? "" : "Novo: "}{n.body}
             </span>

@@ -3,7 +3,7 @@
 // (para o watch em dev funcionar), navegacoes com fallback offline.
 // Versao do cache do shell: aumentar sempre que index.html, styles.css,
 // offline.html ou manifest mudarem, senao o SW serve o shell antigo.
-const CACHE = "xepaja-v4";
+const CACHE = "xepaja-v6";
 const SHELL = ["/", "/offline.html", "/manifest.webmanifest", "/styles.css"];
 
 self.addEventListener("install", (event) => {

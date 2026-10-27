@@ -1,13 +1,23 @@
 :root {
   color-scheme: light;
-  --bg: #f7f4ec;
-  --card: #ffffff;
-  --ink: #1e2a1f;
-  --muted: #5c665c;
-  --brand: #1f7a3d;
-  --brand-ink: #ffffff;
-  --line: #e2ddcf;
-  --focus: #0b5fff;
+  --bg: #FAF7F2;
+  --card: #FFFFFF;
+  --ink: #3B2219;
+  --muted: #6B5F55;
+  --brand: #107C41;
+  --brand-ink: #FFFFFF;
+  --brand-dark: #0B5A30;
+  --line: #E8E0D2;
+  --palha-escuro: #F0EAE1;
+  --sage: #E9EFE7;
+  --danger: #E0533C;
+  --danger-bg: #FDECEA;
+  --danger-line: #E5A19A;
+  --warn: #F3A932;
+  --warn-bg: #FFF6E3;
+  --focus: #0B5FFF;
+  --font-display: "Bricolage Grotesque", "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -20,8 +30,9 @@ html, body {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  line-height: 1.5;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
   min-width: 320px;
 }
 
@@ -40,6 +51,7 @@ body {
   color: #fff;
   padding: 8px 12px;
   z-index: 10;
+  border-radius: 0 0 12px 0;
 }
 
 .skip-link:focus { left: 8px; top: 8px; }
@@ -49,38 +61,54 @@ body {
   outline-offset: 2px;
 }
 
+/* Topbar: estrutura mantida, só tom Couve oficial (Q8=3 + Q12=1) */
 .topbar {
   background: var(--brand);
   color: var(--brand-ink);
 }
 
-.topbar-inner { padding: 16px; }
+.topbar-inner { padding: 18px 16px; }
 
 .brand {
   margin: 0;
-  font-size: 1.6rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
-.tagline { margin: 0; opacity: 0.95; }
+.tagline { margin: 2px 0 0; opacity: 0.95; font-size: 0.95rem; }
 
 main.wrap {
   display: grid;
-  gap: 12px;
-  padding-top: 12px;
-  padding-bottom: 24px;
+  gap: 14px;
+  padding-top: 14px;
+  padding-bottom: 28px;
 }
 
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 22px;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(59, 34, 25, 0.04);
 }
 
-.card h1, .card h2 {
+.card h1 {
   margin: 0 0 12px;
-  font-size: 1.15rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 5.5vw, 1.9rem);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 4.5vw, 1.4rem);
+  line-height: 1.2;
+  color: var(--ink);
 }
 
 .row {
@@ -99,149 +127,276 @@ main.wrap {
   .grid { grid-template-columns: 1fr 1fr; }
 }
 
+/* Botoes pill Figma (Q10=1, Q16=1) */
 .btn {
   appearance: none;
-  border: 1px solid var(--brand);
+  border: 1.5px solid var(--brand);
   background: #fff;
   color: var(--brand);
-  border-radius: 10px;
-  padding: 10px 14px;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-family: var(--font-display);
   font-size: 1rem;
+  font-weight: 700;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 48px;
+  line-height: 1.2;
 }
 
 .btn.primary {
   background: var(--brand);
   color: var(--brand-ink);
+  border-color: var(--brand);
 }
+
+.btn.primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
+.btn:not(.primary):hover { background: var(--sage); }
+
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .field { margin-top: 12px; }
 
 .field label {
   display: block;
   margin-bottom: 6px;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--ink);
 }
 
 .field input {
   flex: 1 1 120px;
   min-width: 0;
+  width: 100%;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 14px;
+  padding: 12px 14px;
   font-size: 1rem;
-  min-height: 44px;
+  font-family: var(--font-body);
+  min-height: 48px;
+  background: #fff;
+  color: var(--ink);
 }
+
+.field input::placeholder { color: var(--muted); opacity: 0.8; }
 
 .field select {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 14px;
+  padding: 12px 14px;
   font-size: 1rem;
-  min-height: 44px;
+  font-family: var(--font-body);
+  min-height: 48px;
   background: #fff;
+  color: var(--ink);
 }
 
 .stack {
   display: grid;
-  gap: 4px;
+  gap: 12px;
   margin-top: 12px;
 }
 
+/* Linha de erro: rosado + dot Mamao (Q15=1) */
 .error {
+  position: relative;
   margin: 8px 0 0;
-  padding: 10px 12px;
-  background: #fdecea;
-  border: 1px solid #e5a19a;
-  border-radius: 10px;
+  padding: 12px 14px 12px 34px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  border-radius: 14px;
+  color: var(--ink);
 }
 
-.facts { margin: 0 0 8px; display: grid; gap: 4px; }
-.facts > div { display: flex; gap: 8px; flex-wrap: wrap; }
-.facts dt { font-weight: 600; }
+.error::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 18px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--danger);
+}
+
+.facts { margin: 0 0 8px; display: grid; gap: 8px; }
+.facts > div {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px 10px 34px;
+  background: #fff;
+}
+.facts > div::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 18px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand);
+}
+.facts dt { font-weight: 700; font-size: 0.85rem; }
 .facts dd { margin: 0; }
 
 .gps {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 12px;
   margin: 8px 0 0;
+  background: #fff;
 }
 
 .gps legend { font-weight: 600; padding: 0 6px; }
 
-.list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 10px; }
 .list-row {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 12px;
+  border-radius: 14px;
+  padding: 12px 14px 12px 34px;
+  background: #fff;
 }
 
-.btn.small { min-height: 36px; padding: 6px 10px; font-size: 0.9rem; }
-.btn.danger { border-color: #b3261e; color: #b3261e; }
-.sub { font-size: 1rem; margin: 8px 0 0; }
+.list-row::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 20px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand);
+  flex: none;
+}
+
+.btn.small { min-height: 40px; padding: 8px 14px; font-size: 0.9rem; }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
+.sub { font-size: 1rem; margin: 8px 0 0; font-family: var(--font-display); font-weight: 700; }
 .nav { margin-bottom: 0; }
 
-.offer { display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+/* Nav em pills (Q16=1): ativa solida, inativa outline */
+.nav .row { gap: 8px; }
+.nav .btn { min-height: 44px; }
+
+.offer { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: #fff; }
 .offer-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
-.badge { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 0.85rem; background: #f1f8e9; }
-.badge[data-state="publicada"] { background: #e8f5e9; }
-.badge[data-state="esgotada"] { background: #fff8e1; }
-.badge[data-state="cancelada"], .badge[data-state="encerrada"] { background: #f5f5f5; }
+
+/* Chips/badges pill Palha-Escuro (Q15=1) */
+.badge {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--palha-escuro);
+  color: var(--ink);
+}
+.badge[data-state="publicada"] { background: var(--sage); }
+.badge[data-state="pendente"] { background: var(--warn-bg); border-color: var(--warn); }
+.badge[data-state="esgotada"] { background: var(--warn-bg); border-color: var(--warn); }
+.badge[data-state="cancelada"], .badge[data-state="encerrada"] { background: var(--palha-escuro); }
 .field.check { display: flex; align-items: center; gap: 8px; }
 .field.check label { display: inline; margin: 0; font-weight: 400; }
 .field.check input { width: 22px; height: 22px; flex: none; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 .status {
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: #fff8e1;
+  position: relative;
+  border-radius: 14px;
+  padding: 12px 14px 12px 34px;
+  background: var(--warn-bg);
   border: 1px solid var(--line);
 }
 
-.status[data-state="online"] { background: #e8f5e9; }
-.status[data-state="offline"] { background: #fdecea; }
+.status::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 20px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand);
+}
 
+.status[data-state="online"] { background: var(--sage); }
+.status[data-state="offline"] { background: var(--danger-bg); }
+
+/* Linha-info Figma: sage + dot Couve (Q15=1) */
 .note {
+  position: relative;
   margin: 12px 0 0;
-  padding: 10px 12px;
-  background: #f1f8e9;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  padding: 12px 14px 12px 34px;
+  background: var(--sage);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  color: var(--ink);
 }
 
-.muted { color: var(--muted); }
+.note::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 20px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand);
+  flex: none;
+}
+
+/* Tom de alerta (ex. limite de cancelamento, faltas): dot Manga (Q15 Figma) */
+.note[data-tone="warn"] {
+  background: var(--warn-bg);
+  border-color: var(--warn);
+}
+
+.note[data-tone="warn"]::before { background: var(--warn); }
+
+/* Aviso ja lido: apagado, sem dot de destaque */
+.list-row.is-read { opacity: 0.62; }
+.list-row.is-read::before { background: var(--line); }
+
+/* Acoes empilhadas full-width (detalhe da oferta, Figma) */
+.row.actions { display: grid; }
+.row.actions .btn { width: 100%; }
+
+.muted { color: var(--muted); font-size: 0.9rem; }
 
 .steps { margin: 0; padding-left: 20px; }
 
 img, svg, video { max-width: 100%; }
-.detail-photo { width: 100%; max-height: 320px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+.detail-photo { width: 100%; max-height: 320px; object-fit: cover; border-radius: 18px; border: 1px solid var(--line); }
 
-.footer { padding-bottom: 24px; color: var(--muted); }
+.footer { padding-bottom: 24px; color: var(--muted); font-size: 0.85rem; }
 
 .map {
   height: 260px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 18px;
   margin-top: 12px;
   z-index: 0;
+  overflow: hidden;
 }
 
-.map-caption { margin: 6px 0 0; }
+.map-caption { margin: 6px 0 0; font-size: 0.85rem; }
 
 .thumb {
   width: 56px;
   height: 56px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 14px;
   border: 1px solid var(--line);
   flex: none;
 }
@@ -253,6 +408,7 @@ img, svg, video { max-width: 100%; }
   padding: 0;
   cursor: pointer;
   display: flex;
+  border-radius: 14px;
 }
 
 .item-thumbs {
@@ -269,9 +425,9 @@ img, svg, video { max-width: 100%; }
 .photo-placeholder {
   width: 56px;
   height: 56px;
-  border-radius: 10px;
+  border-radius: 14px;
   border: 1px dashed var(--line);
-  background: #efece2;
+  background: var(--palha-escuro);
   color: var(--muted);
   font-size: 22px;
   font-weight: 700;

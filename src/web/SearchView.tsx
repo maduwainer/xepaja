@@ -162,7 +162,7 @@ export function SearchView({ user, onReserved }: { user: UserDTO; onReserved: ()
             <p>Cancele sem falta ate {formatDate(result.cancel_before)} em Minha reserva.</p>
           </div>
         )}
-        <div className="row">
+        <div className="row actions">
           <button type="button" className="btn" onClick={() => { setSelected(null); setResult(null); }}>
             Voltar a lista
           </button>
@@ -205,7 +205,7 @@ export function SearchView({ user, onReserved }: { user: UserDTO; onReserved: ()
           <p className="error" role="alert">
             {message}
           </p>
-          <button type="button" className="btn" onClick={locateAndSearch}>
+          <button type="button" className="btn primary" onClick={locateAndSearch}>
             Tentar novamente
           </button>
         </div>
@@ -251,7 +251,7 @@ export function SearchView({ user, onReserved }: { user: UserDTO; onReserved: ()
                   </button>
                 )}
                 <strong>{offer.title}</strong>
-                <span className="muted">{offer.distance_km} km</span>
+                <span className="badge">{offer.distance_km} km</span>
               </div>
               <p className="muted">
                 {offer.kind === "caixa" ? "Caixa surpresa" : "Item"} - {formatPrice(offer)} -{" "}

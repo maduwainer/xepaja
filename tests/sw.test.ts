@@ -15,4 +15,8 @@ describe("service worker", () => {
     }
     expect(error).toBeNull();
   });
+  test("sw.js usa o cache atual do shell", async () => {
+    const src = await Bun.file("public/sw.js").text();
+    expect(src).toContain('CACHE = "xepaja-v6"');
+  });
 });

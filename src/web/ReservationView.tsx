@@ -18,6 +18,7 @@ export function ReservationView({ user }: { user: UserDTO }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   async function refresh() {
     const [a, h] = await Promise.all([ReservationsApi.active(), ReservationsApi.history()]);
@@ -35,6 +36,11 @@ export function ReservationView({ user }: { user: UserDTO }) {
 
   async function handleCancel() {
     if (!active) return;
+    if (!confirming) {
+      // Intersticial anti-toque-acidental (Figma "Cancelar reserva?"): nada muda no servidor.
+      setConfirming(true);
+      return;
+    }
     setError(null);
     setNotice(null);
     setBusy(true);
@@ -42,6 +48,7 @@ export function ReservationView({ user }: { user: UserDTO }) {
       await ReservationsApi.cancel(active.id);
       await refresh();
       setNotice("Reserva cancelada sem falta, dentro do prazo.");
+      setConfirming(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Falha ao cancelar.");
     } finally {
@@ -60,7 +67,7 @@ export function ReservationView({ user }: { user: UserDTO }) {
         </p>
       )}
       {misses > 0 && !blocked && (
-        <p className="note" aria-live="polite">
+        <p className="note" data-tone="warn" aria-live="polite">
           Voce tem {misses} falta(s) desde o ultimo desbloqueio. Novos pedidos ficam pendentes de aceite.
         </p>
       )}
@@ -117,9 +124,23 @@ export function ReservationView({ user }: { user: UserDTO }) {
               caption="Ponto de retirada da sua reserva."
             />
           )}
-          <button type="button" className="btn danger" disabled={busy} onClick={handleCancel}>
-            {busy ? "Cancelando..." : "Cancelar reserva"}
-          </button>
+          {!confirming ? (
+            <button type="button" className="btn danger" disabled={busy} onClick={handleCancel}>
+              {busy ? "Cancelando..." : "Cancelar reserva"}
+            </button>
+          ) : (
+            <div className="row actions">
+              <p className="note" data-tone="warn" aria-live="polite">
+                A unidade volta para a oferta. Deseja cancelar mesmo?
+              </p>
+              <button type="button" className="btn danger" disabled={busy} onClick={handleCancel}>
+                {busy ? "Cancelando..." : "Confirmar cancelamento"}
+              </button>
+              <button type="button" className="btn" disabled={busy} onClick={() => setConfirming(false)}>
+                Manter reserva
+              </button>
+            </div>
+          )}
         </div>
       )}
       {history.length > 0 && (

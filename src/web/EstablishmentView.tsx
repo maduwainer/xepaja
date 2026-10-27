@@ -29,6 +29,7 @@ export function EstablishmentView() {
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [gpsMsg, setGpsMsg] = useState<string | null>(null);
+  const [gpsOk, setGpsOk] = useState<boolean | null>(null);
   const [gps, setGps] = useState<{ lat: string; lng: string }>({ lat: "", lng: "" });
 
   useEffect(() => {
@@ -136,8 +137,9 @@ export function EstablishmentView() {
                   (lat, lng) => {
                     setGps({ lat: String(lat), lng: String(lng) });
                     setGpsMsg("GPS capturado no local atual.");
+                    setGpsOk(true);
                   },
-                  (msg) => setGpsMsg(msg),
+                  (msg) => { setGpsMsg(msg); setGpsOk(false); },
                 )
               }
             >
@@ -168,8 +170,13 @@ export function EstablishmentView() {
               />
             </div>
           </div>
-          {gpsMsg && (
-            <p className="muted" aria-live="polite">
+          {gpsMsg && gpsOk === true && (
+            <p className="note" aria-live="polite">
+              {gpsMsg}
+            </p>
+          )}
+          {gpsMsg && gpsOk === false && (
+            <p className="error" role="alert">
               {gpsMsg}
             </p>
           )}
