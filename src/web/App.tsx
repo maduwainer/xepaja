@@ -23,13 +23,6 @@ type View =
   | "estabelecimento"
   | "itens";
 
-const PHASE_NOTE: Record<string, string> = {
-  buscar: "Busca por raio entra na Fase 3.",
-  reserva: "Reservas entram na Fase 4.",
-  publicar: "Publicacao de ofertas entra na Fase 2.",
-  retirada: "Retirada com codigo entra na Fase 5.",
-};
-
 export function App() {
   const [me, setMe] = useState<UserDTO | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
