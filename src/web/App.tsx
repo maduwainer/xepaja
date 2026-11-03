@@ -195,7 +195,7 @@ export function App() {
       </main>
 
       <footer className="wrap footer">
-        <p>XepaJá, Fase 7. Sem rede nao ha confirmacao de reserva.</p>
+        <p>XepaJá — ofertas perto de você.</p>
       </footer>
     </>
   );
