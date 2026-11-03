@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { createHash, randomBytes } from "node:crypto";
+import { Resend } from "resend";
 import { getDb } from "./db";
 import { hashPassword, normalizeEmail, type AppEnv } from "./auth";
 
@@ -8,14 +9,43 @@ export const passwordApp = new Hono<AppEnv>();
 const TOKEN_TTL_MS = 60 * 60_000;
 const GENERIC_FORGOT =
   "Se o e-mail estiver cadastrado, enviamos as instrucoes de redefinicao.";
+const RESET_URL_BASE = process.env.XEPAJA_URL ?? "http://localhost:3000";
+const RESEND_FROM = process.env.RESEND_FROM ?? "contato@xepaja.com";
+
+let resend: Resend | null = null;
+function getResend(): Resend | null {
+  const key = process.env.RESEND_API_KEY ?? "";
+  if (!key) return null;
+  if (!resend) resend = new Resend(key);
+  return resend;
+}
+
+async function sendResetEmail(email: string, token: string): Promise<void> {
+  const client = getResend();
+  if (!client) {
+    console.log(`[xepaja] reset de senha para ${email}: use o codigo ${token}`);
+    return;
+  }
+  try {
+    const { error } = await client.emails.send({
+      from: RESEND_FROM,
+      to: email,
+      subject: "XepaJa: redefinicao de senha",
+      text: `Voce pediu para redefinir sua senha no XepaJa.\n\nSeu codigo (vale por 1 hora):\n${token}\n\nAbra ${RESET_URL_BASE}, vá em Entrar > Esqueci a senha e digite o codigo com a nova senha.\n\nSe nao foi voce, ignore esta mensagem.`,
+    });
+    if (error) console.error(`[xepaja] falha no envio de reset para ${email}:`, error.message);
+  } catch (err) {
+    console.error(`[xepaja] falha no envio de reset para ${email}:`, err);
+  }
+}
 
 function nowISO(): string {
   return new Date().toISOString();
 }
 
-// Sem oraculo de e-mail: existente ou nao, mesma resposta e mesmo formato.
-// Sem provedor de e-mail no MVP, o token vai para o log do servidor;
-// em producao, trocar pelo envio de e-mail.
+// Envio via Resend quando configurado (RESEND_API_KEY); sem chave, o token
+// vai para o log do servidor (modo demo/dev). Falha de envio nunca vaza
+// existencia da conta: a resposta segue identica (no-oracle).
 passwordApp.post("/auth/password/forgot", async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const email = normalizeEmail(body?.email);
@@ -28,7 +58,7 @@ passwordApp.post("/auth/password/forgot", async (c) => {
       const token = randomBytes(32).toString("hex");
       await db`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${createHash("sha256").update(token).digest("hex")}, ${new Date(Date.now() + TOKEN_TTL_MS).toISOString()})`;
       await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('user', ${user.id}, 'password_forgot', ${null})`;
-      console.log(`[xepaja] reset de senha para ${email}: use o codigo ${token}`);
+      await sendResetEmail(email, token);
     }
   }
   return c.json({ ok: true, message: GENERIC_FORGOT });
