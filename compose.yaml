@@ -36,6 +36,8 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:xepaja@localhost}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-contato@xepaja.com}
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:
