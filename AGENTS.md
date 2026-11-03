@@ -121,7 +121,7 @@ Nota: a numeracao de RF no PDF tem duplicidades (existem dois RF-23 e RF-17 repe
 
 ## Planejamento e status
 
-Status em 2026-10-16: Fases 0 a 7 feitas e verificadas, MVP completo, mais migracao SQLite para PostgreSQL feita e verificada (cutover total com postgres.js, compose com db + app e override com Caddy para TLS na VPS, 51 testes verdes, seed recriado do zero e idempotente, smoke de login, bloqueio, nearby e reserva). Fase 7 rodou a QA final: teclado com skip link, aria-pressed e live regions, alvos de 44 px e foco visivel; matriz 360, 768 e 1280 sem scroll horizontal; carga local em ~130 ms com folga na meta de 3 s; GPS do consumidor nunca persistido (0 linhas com gps em reservas, sem coluna de coords em users); TLS de producao via Caddy no deploy, dev local em http; tsc e build limpos mais smoke E2E de todas as telas do comerciante sem erros de console. Proximo passo: deploy na VPS com o dominio da demonstracao, mais provedor de e-mail para o reset de senha.
+Status em 2026-11-03: deploy na VPS feito e verificado: app + db em Docker em /opt/xepaja (git clone do main), Caddy central com reverse_proxy para a app, https://xepaja.com servindo com banco populado (seed demo + conta do dono), reset de senha por e-mail via Resend (dominio verificado, remetente contato@xepaja.com) testado de ponta a ponta. Proximo passo: trocar a API key full-access da Resend no .env de prod por uma send-only nova, e seguir o roadmap de produto.
 
 Ordem sugerida, cada fase com criterio de pronto ligado aos CA:
 
