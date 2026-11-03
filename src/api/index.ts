@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { getDb, migrate } from "./db";
+import { closeDb, getDb, migrate } from "./db";
 import type { HealthResponse } from "../shared/types";
 import { usersApp } from "./users";
 import { establishmentsApp } from "./establishments";
@@ -66,6 +66,15 @@ app.notFound(async (c) => {
 if (import.meta.main) {
   await migrate();
   const port = Number(process.env.PORT ?? 3000);
-  Bun.serve({ port, fetch: app.fetch });
+  const server = Bun.serve({ port, fetch: app.fetch });
   console.log(`xepaja api up on http://localhost:${port}`);
+  const shutdown = async () => {
+    try {
+      server.stop();
+    } catch {}
+    await closeDb();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

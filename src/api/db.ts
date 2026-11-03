@@ -49,6 +49,11 @@ let sql: Sql | null = null;
 export function getDb(): Sql {
   if (sql) return sql;
   sql = postgres(databaseUrl(), {
+    // Pool pequeno: MVP local/dev com poucas conexoes simultaneas.
+    // Evita estourar o max_connections do Postgres em watch/teste/seed.
+    max: 10,
+    idle_timeout: 20,
+    connect_timeout: 10,
     // migrate() com IF NOT EXISTS gera NOTICEs; fora isto o boot despeja o catalogo no log.
     onnotice: () => {},
     // Chave propria para nao interferir no tratamento padrao de Date.
