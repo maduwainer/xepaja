@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { createHash, randomBytes } from "node:crypto";
 import { getDb, type DbClient } from "./db";
 import { sendPushToUser } from "./push";
-import { requireAuth, requireMerchant, type AppEnv, type SessionUser } from "./auth";
+import { requireAuth, requireMerchant, withinLen, type AppEnv, type SessionUser } from "./auth";
 import { effectiveState, remainingUnits } from "./offers";
 
 export const reservationsApp = new Hono<AppEnv>();
@@ -205,6 +205,12 @@ reservationsApp.post("/reservations", requireAuth, async (c) => {
   if (!key) {
     return c.json(
       { ok: false, code: "idempotency_required", message: "Reenvie com a mesma chave de idempotencia." },
+      400,
+    );
+  }
+  if (!withinLen(key, 120)) {
+    return c.json(
+      { ok: false, code: "invalid_idempotency", message: "Chave de idempotencia precisa ter ate 120 caracteres." },
       400,
     );
   }
@@ -514,6 +520,9 @@ reservationsApp.post("/reservations/:id/refuse", requireMerchant, async (c) => {
   if (!reason) {
     return c.json({ ok: false, code: "reason_required", message: "Informe o motivo da recusa." }, 400);
   }
+  if (!withinLen(reason, 200)) {
+    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter ate 200 caracteres." }, 400);
+  }
   const db = getDb();
   const refused = await db`UPDATE reservations SET state = 'recusada', cancel_reason = ${reason} WHERE id = ${id} AND state = 'pendente' RETURNING id`;
   if (refused.length === 0) {
@@ -551,6 +560,9 @@ reservationsApp.post("/reservations/:id/merchant-cancel", requireMerchant, async
   const reason = body && typeof body.reason === "string" ? body.reason.trim() : "";
   if (!reason) {
     return c.json({ ok: false, code: "reason_required", message: "Informe o motivo do cancelamento." }, 400);
+  }
+  if (!withinLen(reason, 200)) {
+    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter ate 200 caracteres." }, 400);
   }
   const db = getDb();
   await db`UPDATE reservations SET state = 'cancelada', cancel_reason = ${`Cancelada pelo comerciante: ${reason}`} WHERE id = ${id}`;

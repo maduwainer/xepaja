@@ -45,6 +45,7 @@ export function toUserDTO(row: UserRow): SessionUser {
 export function normalizeEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const email = value.trim().toLowerCase();
+  if (email.length > 254) return null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
   return email;
 }
@@ -80,12 +81,19 @@ export function validateCnpj(value: unknown): string | null {
   return digits;
 }
 
-// Raio de busca do consumidor: maior que zero e ate 100 km.
+// Raio de busca do consumidor: entre 10 e 100 km (slider da tela Conta).
+// Valores fora disso sao rejeitados em cadastro, edicao e busca.
 export function validateRadius(value: unknown): number | null {
   const num = typeof value === "string" ? Number(value) : value;
   if (typeof num !== "number" || !Number.isFinite(num)) return null;
-  if (num <= 0 || num > 100) return null;
+  if (num < 10 || num > 100) return null;
   return num;
+}
+
+// Teto de tamanho para campos de texto (o banco usa TEXT sem limite;
+// o teto existe para coerencia com a UI e contra abuso). Retorna true se ok.
+export function withinLen(value: string, max: number): boolean {
+  return value.length <= max;
 }
 
 export async function hashPassword(password: string): Promise<string> {

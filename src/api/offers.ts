@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { getDb, type DbClient } from "./db";
-import { requireAuth, requireMerchant, type AppEnv } from "./auth";
+import { requireAuth, requireMerchant, withinLen, type AppEnv } from "./auth";
 
 export const offersApp = new Hono<AppEnv>();
 
@@ -120,7 +120,7 @@ async function parseOfferItems(
     if (!Number.isInteger(itemId)) {
       return { items: [], error: "Item invalido na composicao." };
     }
-    if (typeof qty !== "number" || !Number.isFinite(qty) || qty <= 0) {
+    if (typeof qty !== "number" || !Number.isFinite(qty) || qty <= 0 || qty > 1000000) {
       return { items: [], error: "Quantidade de cada item precisa ser positiva." };
     }
     const owned = (await db`SELECT id FROM items WHERE id = ${itemId} AND establishment_id = ${estabId}`)[0];
@@ -152,11 +152,12 @@ function parseCommon(body: Record<string, unknown>): {
   const priceRaw = typeof body.price_cents === "string" ? Number(body.price_cents) : body.price_cents;
   const price_cents = typeof priceRaw === "number" && Number.isInteger(priceRaw) ? priceRaw : null;
   if (!title) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Informe o titulo da oferta." };
+  if (!withinLen(title, 120)) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Titulo precisa ter ate 120 caracteres." };
   if (!kind) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Tipo precisa ser item ou caixa surpresa." };
-  if (total_units === null || total_units <= 0) {
+  if (total_units === null || total_units <= 0 || total_units > 100000) {
     return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Quantidade ofertada precisa ser positiva." };
   }
-  if (price_cents === null || price_cents < 0) {
+  if (price_cents === null || price_cents < 0 || price_cents > 100000000) {
     return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Preco precisa ser zero ou maior." };
   }
   if (is_free && price_cents !== 0) {
@@ -168,10 +169,14 @@ function parseCommon(body: Record<string, unknown>): {
   if (!available_from || !pickup_from || !pickup_until) {
     return { title, kind, total_units, price_cents, is_free, available_from, pickup_from, pickup_until, storage_notes: "", error: "Informe datas validas de disponibilidade e retirada." };
   }
+  const storage_notes = str(body.storage_notes);
+  if (!withinLen(storage_notes, 200)) {
+    return { title, kind, total_units, price_cents, is_free, available_from, pickup_from, pickup_until, storage_notes: "", error: "Orientacoes precisam ter ate 200 caracteres." };
+  }
   return {
     title, kind, total_units, price_cents, is_free,
     available_from, pickup_from, pickup_until,
-    storage_notes: str(body.storage_notes), error: null,
+    storage_notes, error: null,
   };
 }
 
@@ -264,9 +269,9 @@ offersApp.get("/offers/nearby", requireAuth, async (c) => {
   }
   const rawRadius = c.req.query("radius_km");
   const radius = rawRadius === undefined ? user.search_radius_km : Number(rawRadius);
-  if (!Number.isFinite(radius) || radius <= 0 || radius > 100) {
+  if (!Number.isFinite(radius) || radius < 10 || radius > 100) {
     return c.json(
-      { ok: false, code: "invalid_radius", message: "Escolha um raio maior que zero e de ate 100 km." },
+      { ok: false, code: "invalid_radius", message: "Escolha um raio entre 10 e 100 km." },
       400,
     );
   }
@@ -420,6 +425,9 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     if (body.storage_notes === undefined) {
       return c.json({ ok: false, code: "invalid_body", message: "Nada para atualizar." }, 400);
     }
+    if (!withinLen(str(body.storage_notes), 200)) {
+      return c.json({ ok: false, code: "invalid_notes", message: "Orientacoes precisam ter ate 200 caracteres." }, 400);
+    }
     const noteRows = await getDb()`UPDATE offers SET storage_notes = ${str(body.storage_notes)},
          updated_at = now()
          WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
@@ -433,6 +441,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
   if (body.title !== undefined) {
     const title = str(body.title);
     if (!title) return c.json({ ok: false, code: "invalid_title", message: "Informe o titulo da oferta." }, 400);
+    if (!withinLen(title, 120)) return c.json({ ok: false, code: "invalid_title", message: "Titulo precisa ter ate 120 caracteres." }, 400);
     updates.push("title = ?");
     params.push(title);
   }
@@ -449,7 +458,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
   }
   if (body.total_units !== undefined) {
     const total = typeof body.total_units === "string" ? Number(body.total_units) : body.total_units;
-    if (typeof total !== "number" || !Number.isInteger(total) || total <= 0) {
+    if (typeof total !== "number" || !Number.isInteger(total) || total <= 0 || total > 100000) {
       return c.json({ ok: false, code: "invalid_units", message: "Quantidade ofertada precisa ser positiva." }, 400);
     }
     updates.push("total_units = ?");
@@ -460,7 +469,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     const price = typeof priceRaw === "string" ? Number(priceRaw) : priceRaw;
     const isFreeRaw = body.is_free === undefined ? offer.is_free : body.is_free;
     const isFree = isFreeRaw === true || isFreeRaw === 1 || isFreeRaw === "true";
-    if (typeof price !== "number" || !Number.isInteger(price) || price < 0) {
+    if (typeof price !== "number" || !Number.isInteger(price) || price < 0 || price > 100000000) {
       return c.json({ ok: false, code: "invalid_price", message: "Preco precisa ser zero ou maior." }, 400);
     }
     if (isFree && price !== 0) {
@@ -480,6 +489,9 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     }
   }
   if (body.storage_notes !== undefined) {
+    if (!withinLen(str(body.storage_notes), 200)) {
+      return c.json({ ok: false, code: "invalid_notes", message: "Orientacoes precisam ter ate 200 caracteres." }, 400);
+    }
     updates.push("storage_notes = ?");
     params.push(str(body.storage_notes));
   }
@@ -551,6 +563,9 @@ offersApp.post("/offers/:id/cancel", requireMerchant, async (c) => {
   const reason = body ? str(body.reason) : "";
   if (!reason) {
     return c.json({ ok: false, code: "reason_required", message: "Informe o motivo do cancelamento." }, 400);
+  }
+  if (!withinLen(reason, 200)) {
+    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter ate 200 caracteres." }, 400);
   }
 
   const db = getDb();

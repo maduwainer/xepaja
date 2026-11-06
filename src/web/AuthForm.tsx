@@ -89,10 +89,6 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
           password: String(form.get("password") ?? ""),
           role,
         };
-        if (role === "consumer") {
-          const radius = Number(String(form.get("radius") ?? "").replace(",", "."));
-          input.search_radius_km = radius;
-        }
         const res = await AuthApi.signup(input);
         onAuth(res.user);
       }
@@ -264,7 +260,6 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
               <label htmlFor="auth-name">Nome</label>
               <input id="auth-name" name="name" required autoComplete="name" maxLength={120} />
             </div>
-            <div className="row">
             <div className="field short">
               <label htmlFor="auth-cpf">CPF</label>
               <input
@@ -275,20 +270,6 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
                 autoComplete="off"
                 placeholder="somente numeros"
               />
-            </div>
-            {role === "consumer" && (
-              <div className="field short">
-                <label htmlFor="auth-radius">Raio de busca (km, max 100)</label>
-                <input
-                  id="auth-radius"
-                  name="radius"
-                  required
-                  inputMode="decimal"
-                  autoComplete="off"
-                  placeholder="10"
-                />
-              </div>
-            )}
             </div>
           </>
         )}

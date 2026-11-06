@@ -115,6 +115,12 @@ passwordApp.post("/auth/password/reset", async (c) => {
       400,
     );
   }
+  if (password.length > 128) {
+    return c.json(
+      { ok: false, code: "invalid_password", message: "A senha precisa ter ate 128 caracteres." },
+      400,
+    );
+  }
   const db = getDb();
   await db`UPDATE users SET password_hash = ${await hashPassword(password)} WHERE id = ${row.user_id}`;
   await db`UPDATE password_resets SET used_at = ${nowISO()}::timestamptz WHERE id = ${row.id}`;

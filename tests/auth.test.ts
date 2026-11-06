@@ -81,6 +81,12 @@ describe("contas e sessao", () => {
     }
   });
 
+  test("consumidor sem raio cria conta com padrao de 10 km", async () => {
+    const res = await signup({ name: "I", cpf: CPF_OK, email: uniqueEmail(), password: "senha-segura-11", role: "consumer" });
+    expect(res.status).toBe(201);
+    expect((await res.json()).user.search_radius_km).toBe(10);
+  });
+
   test("login com senha errada nao revela o motivo", async () => {
     const email = uniqueEmail();
     await signup({ name: "E", cpf: CPF_OK, email, password: "senha-correta-7", role: "consumer", search_radius_km: 10 });

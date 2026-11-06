@@ -6,6 +6,9 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [radius, setRadius] = useState(() =>
+    Math.min(100, Math.max(10, Math.round(user.search_radius_km ?? 10))),
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -18,8 +21,7 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
       const name = String(form.get("name") ?? "").trim();
       if (name && name !== user.name) body.name = name;
       if (user.role === "consumer") {
-        const radius = Number(String(form.get("radius") ?? "").replace(",", "."));
-        if (Number.isFinite(radius) && radius !== user.search_radius_km) {
+        if (radius !== user.search_radius_km) {
           body.search_radius_km = radius;
         }
       }
@@ -70,14 +72,19 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
           <input id="conta-nome" name="name" defaultValue={user.name} maxLength={120} />
         </div>
         {user.role === "consumer" && (
-          <div className="field short">
-            <label htmlFor="conta-raio">Raio de busca (km, max 100)</label>
+          <div className="field">
+            <label htmlFor="conta-raio">
+              Raio de busca: <strong>{radius} km</strong> <span className="muted">(10 a 100)</span>
+            </label>
             <input
               id="conta-raio"
               name="radius"
-              inputMode="decimal"
-              autoComplete="off"
-              defaultValue={String(user.search_radius_km)}
+              type="range"
+              min={10}
+              max={100}
+              step={1}
+              value={radius}
+              onChange={(e) => setRadius(Number(e.target.value))}
             />
           </div>
         )}

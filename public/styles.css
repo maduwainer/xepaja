@@ -256,6 +256,17 @@ form.stack.auth-form { max-width: 400px; }
 }
 .password-toggle:hover { background: var(--sage); }
 
+.field input[type="range"] {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  accent-color: var(--brand);
+  min-height: 44px;
+  cursor: pointer;
+}
+
 /* Duas colunas so no desktop */
 .cols-2 { display: grid; gap: 0 12px; grid-template-columns: 1fr; }
 @media (min-width: 640px) {

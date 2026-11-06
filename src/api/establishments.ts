@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDb } from "./db";
-import { requireMerchant, validateCnpj, type AppEnv } from "./auth";
+import { requireMerchant, validateCnpj, withinLen, type AppEnv } from "./auth";
 
 export const establishmentsApp = new Hono<AppEnv>();
 
@@ -123,6 +123,9 @@ establishmentsApp.post("/establishments", requireMerchant, async (c) => {
   if (!name) {
     return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do estabelecimento." }, 400);
   }
+  if (!withinLen(name, 120)) {
+    return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
+  }
   if (!kind) {
     return c.json(
       { ok: false, code: "invalid_kind", message: "Tipo precisa ser feira ou mercearia." },
@@ -174,6 +177,9 @@ establishmentsApp.patch("/establishments/mine", requireMerchant, async (c) => {
     const name = str(body.name);
     if (!name) {
       return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do estabelecimento." }, 400);
+    }
+    if (!withinLen(name, 120)) {
+      return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
     }
     updates.push("name = ?");
     params.push(name);
@@ -283,8 +289,14 @@ establishmentsApp.post("/items", requireMerchant, async (c) => {
   if (!name) {
     return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do item." }, 400);
   }
+  if (!withinLen(name, 80)) {
+    return c.json({ ok: false, code: "invalid_name", message: "Nome do item precisa ter ate 80 caracteres." }, 400);
+  }
   if (!unit) {
     return c.json({ ok: false, code: "invalid_unit", message: "Informe a unidade do item." }, 400);
+  }
+  if (!withinLen(unit, 20)) {
+    return c.json({ ok: false, code: "invalid_unit", message: "Unidade precisa ter ate 20 caracteres." }, 400);
   }
   const inserted = await getDb()`INSERT INTO items (establishment_id, name, unit) VALUES (${estab.id}, ${name}, ${unit})
        RETURNING id, establishment_id, name, unit`;
@@ -319,6 +331,9 @@ establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
     if (!name) {
       return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do item." }, 400);
     }
+    if (!withinLen(name, 80)) {
+      return c.json({ ok: false, code: "invalid_name", message: "Nome do item precisa ter ate 80 caracteres." }, 400);
+    }
     updates.push("name = ?");
     params.push(name);
   }
@@ -326,6 +341,9 @@ establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
     const unit = str(body.unit);
     if (!unit) {
       return c.json({ ok: false, code: "invalid_unit", message: "Informe a unidade do item." }, 400);
+    }
+    if (!withinLen(unit, 20)) {
+      return c.json({ ok: false, code: "invalid_unit", message: "Unidade precisa ter ate 20 caracteres." }, 400);
     }
     updates.push("unit = ?");
     params.push(unit);
@@ -359,6 +377,13 @@ establishmentsApp.delete("/items/:id", requireMerchant, async (c) => {
   if (!(await getOwnItem(estab.id, itemId))) {
     return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
   }
-  await getDb()`DELETE FROM items WHERE id = ${itemId}`;
+  try {
+    await getDb()`DELETE FROM items WHERE id = ${itemId}`;
+  } catch (err) {
+    if ((err as { code?: string })?.code === "23503") {
+      return c.json({ ok: false, code: "item_in_use", message: "Item em uso em ofertas e nao pode ser removido." }, 409);
+    }
+    throw err;
+  }
   return c.json({ ok: true });
 });

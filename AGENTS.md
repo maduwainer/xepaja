@@ -11,7 +11,7 @@ XepaJa e um Progressive Web App para conectar feirantes e mercearias locais a mo
 Dois perfis, sem perfil operacional no MVP:
 
 - Comerciante: feirante ou mercearia. Administra estabelecimento, cadastra itens, publica ofertas, decide sobre pedidos pendentes, confirma retirada presencial, encerra ou cancela ofertas.
-- Consumidor: morador. Escolhe raio de busca, usa localizacao atual para achar ofertas proximas, pede uma reserva por vez, cancela dentro do prazo, apresenta codigo na retirada.
+- Consumidor: morador. Sai com raio padrao de 10 km e ajusta depois entre 10 e 100 km na Conta, usa localizacao atual para achar ofertas proximas, pede uma reserva por vez, cancela dentro do prazo, apresenta codigo na retirada.
 
 Negociacao financeira, quando houver, acontece presencialmente fora do aplicativo. O app nao cobra, nao processa e nao confirma pagamentos.
 
@@ -51,7 +51,7 @@ Requisito de fluxo de desenvolvimento, espelhado no watch do projeto irmao uberp
 - Bloqueio: apos a terceira falta desde o ultimo desbloqueio, o consumidor fica 10 dias sem poder criar novas reservas, contados da expiracao que gerou a terceira falta. Ao fim do bloqueio inicia-se nova contagem.
 - Codigo de retirada: cada reserva confirmada tem um codigo unico de uso unico, apresentado pelo consumidor. O comerciante informa o codigo para registrar a entrega. Uma reserva so pode ser concluida uma vez. Registro permitido durante a janela e ate 15 minutos apos.
 - Posicao GPS do estabelecimento: capturada no local de retirada antes de publicar ofertas. Alterar endereco exige recapturar GPS e vale so para ofertas futuras; reservas existentes mantem local, preco, composicao e prazo aceitos (snapshot no pedido).
-- Localizacao do consumidor: usada somente no momento da busca, mediante permissao, comparada a posicao registrada do estabelecimento para filtrar pelo raio. Sem permissao ou sem fix, explicar, oferecer nova tentativa e manter conta e historico acessiveis. Nao fazer tracking continuo, nao usar endereco residencial para busca, nao armazenar posicao do consumidor no perfil. O consumidor nao cadastra endereco residencial; so escolhe raio maior que zero e ate 100 km.
+- Localizacao do consumidor: usada somente no momento da busca, mediante permissao, comparada a posicao registrada do estabelecimento para filtrar pelo raio. Sem permissao ou sem fix, explicar, oferecer nova tentativa e manter conta e historico acessiveis. Nao fazer tracking continuo, nao usar endereco residencial para busca, nao armazenar posicao do consumidor no perfil. O consumidor nao cadastra endereco residencial; conta nova sai com raio padrao de 10 km e o ajuste fino (10 a 100 km) fica na tela Conta.
 
 ## Ciclos de vida
 
@@ -150,7 +150,7 @@ Regra de QA para este projeto: todo teste de interface passa pelo Playwright MCP
 - Apos cada alteracao no codigo, dar tempo do rebuild do watch antes de afirmar (a pagina recarrega sozinha em localhost).
 - O perfil do navegador e temporario e isolado: nada persiste entre sessoes. Criar usuarios de teste novos a cada rodada via signup com e-mails unicos; nao depender de conta fixa que pode colidir com outra sessao.
 - Frontend React com rotas por perfil e telas para cadastro, busca, detalhe, reserva, publicacao e confirmacao de retirada; forms com labels, foco visivel e erros ligados aos campos.
-- API Hono como unico lugar que decide estoque, faltas e bloqueio; cliente nunca confia em estado local para essas decisoes.
+- API Hono como unico lugar que decide estoque, faltas e bloqueio; cliente nunca confia em estado local para essas decisoes. Servidor valida tudo de novo: raio sempre entre 10 e 100 km (cadastro, edicao e busca), tetos de tamanho (nome 120, item 80/20, titulo 120, notas e motivos 200, senha ate 128, chave de idempotencia ate 120), tetos numericos (unidades ate 100 mil, preco ate R$1 milhao, quantidade por unidade ate 1M) e delete de item em uso volta 409 em vez de 500.
 - PostgreSQL com transacoes em reserva (SELECT ... FOR UPDATE na oferta), aceite, recusa, cancelamento, expiracao e retirada; checagem de idempotencia para reenvio; registro de data, hora e agente; migrate idempotente e seeds para os testes de CA. Datas em TIMESTAMPTZ normalizadas para ISO no driver; COUNT com ::int.
 - Fotos de oferta sao obrigatorias e ficam em data/uploads (ignorado no git); o banco guarda so o caminho. Limite de 5 MB, apenas jpeg, png e webp. Servidas em GET /api/offers/:id/photo.
 - GPS: pedir posicao do estabelecimento no local de retirada e do consumidor somente na busca; tratar negacao com mensagem e nova tentativa; nunca persistir posicao do consumidor.

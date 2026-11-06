@@ -13,6 +13,7 @@ import {
   validateCpf,
   validateRadius,
   verifyPassword,
+  withinLen,
   type AppEnv,
 } from "./auth";
 
@@ -21,8 +22,9 @@ export const usersApp = new Hono<AppEnv>();
 const INVALID_LOGIN = "E-mail ou senha invalidos.";
 
 // POST /api/auth/signup
-// RF-01: conta com nome, CPF, e-mail e senha. Consumidor informa raio
-// maior que zero e ate 100 km e nao cadastra endereco residencial.
+// RF-01: conta com nome, CPF, e-mail e senha. Consumidor novo sai com raio
+// padrao de 10 km; o ajuste fino (10 a 100 km) e na tela Conta. Valor de raio
+// enviado segue validado, e nao ha cadastro de endereco residencial.
 usersApp.post("/auth/signup", async (c) => {
   const body = await c.req.json().catch(() => null);
   const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -33,6 +35,9 @@ usersApp.post("/auth/signup", async (c) => {
 
   if (!name) {
     return c.json({ ok: false, code: "invalid_name", message: "Informe o nome." }, 400);
+  }
+  if (!withinLen(name, 120)) {
+    return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
   }
   if (!email) {
     return c.json({ ok: false, code: "invalid_email", message: "Informe um e-mail valido." }, 400);
@@ -46,13 +51,21 @@ usersApp.post("/auth/signup", async (c) => {
       400,
     );
   }
+  if (password.length > 128) {
+    return c.json(
+      { ok: false, code: "invalid_password", message: "A senha precisa ter ate 128 caracteres." },
+      400,
+    );
+  }
 
+  // Raio padrao de 10 km para consumidores novos; o ajuste fino (10 a 100)
+  // acontece depois, na tela Conta. Valor enviado segue validado.
   let radius = 10;
-  if (role === "consumer") {
-    const parsed = validateRadius(body?.search_radius_km);
+  if (role === "consumer" && body?.search_radius_km !== undefined) {
+    const parsed = validateRadius(body.search_radius_km);
     if (parsed === null) {
       return c.json(
-        { ok: false, code: "invalid_radius", message: "Escolha um raio maior que zero e de ate 100 km." },
+        { ok: false, code: "invalid_radius", message: "Escolha um raio entre 10 e 100 km." },
         400,
       );
     }
@@ -140,6 +153,9 @@ usersApp.patch("/users/me", requireAuth, async (c) => {
     if (!name) {
       return c.json({ ok: false, code: "invalid_name", message: "Informe o nome." }, 400);
     }
+    if (!withinLen(name, 120)) {
+      return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
+    }
     updates.push("name = ?");
     params.push(name);
   }
@@ -148,13 +164,13 @@ usersApp.patch("/users/me", requireAuth, async (c) => {
     if (user.role !== "consumer") {
       return c.json(
         { ok: false, code: "radius_consumer_only", message: "Raio de busca e do perfil consumidor." },
-        400,
+        403,
       );
     }
     const radius = validateRadius(body.search_radius_km);
     if (radius === null) {
       return c.json(
-        { ok: false, code: "invalid_radius", message: "Escolha um raio maior que zero e de ate 100 km." },
+        { ok: false, code: "invalid_radius", message: "Escolha um raio entre 10 e 100 km." },
         400,
       );
     }
