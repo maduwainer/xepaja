@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { app } from "../src/api/index";
 import { getDb, migrate, truncateAll } from "../src/api/db";
+import { maskCpf } from "../src/web/AuthForm";
 
 // Varredura de validacoes do servidor: todo campo importante rejeita entrada
 // invalida com 4xx e codigo estavel. Nao duplica os fluxos felizes das outras
@@ -174,6 +175,27 @@ describe("cadastro valida tudo no servidor", () => {
       expect(res.status).toBe(400);
       expect((await res.json()).code).toBe("invalid_radius");
     }
+  });
+});
+
+describe("cpf com mascara e zero a esquerda", () => {
+  test("mascara formata parcial e completo", () => {
+    expect(maskCpf("")).toBe("");
+    expect(maskCpf("5")).toBe("5");
+    expect(maskCpf("52998")).toBe("529.98");
+    expect(maskCpf("529982247")).toBe("529.982.247");
+    expect(maskCpf("52998224725")).toBe("529.982.247-25");
+    expect(maskCpf("529.982.247-25")).toBe("529.982.247-25");
+    expect(maskCpf("529982247259999")).toBe("529.982.247-25");
+  });
+  test("mascarado e com zero a esquerda salvam so digitos como texto", async () => {
+    const masked = await signupConsumer({ email: uniqueEmail(), cpf: "529.982.247-25" });
+    expect(masked.status).toBe(201);
+    const leadingEmail = uniqueEmail();
+    const leading = await signupConsumer({ email: leadingEmail, cpf: "012.345.678-90" });
+    expect(leading.status).toBe(201);
+    const rows = await getDb()`SELECT cpf FROM users WHERE email = ${leadingEmail}` as { cpf: unknown }[];
+    expect(rows[0]?.cpf).toBe("01234567890");
   });
 });
 

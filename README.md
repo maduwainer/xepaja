@@ -13,7 +13,7 @@ XepaJá é um Progressive Web App que conecta feirantes e mercearias locais a mo
 Dois perfis, sem perfil operacional no MVP:
 
 - Comerciante: administra estabelecimento (com GPS de retirada), cadastra itens, publica ofertas com foto, decide sobre pedidos pendentes, confirma retiradas por código, encerra ou cancela ofertas.
-- Consumidor: busca ofertas por raio (até 100 km), reserva uma unidade por vez, cancela dentro do prazo, apresenta o código na retirada.
+- Consumidor: busca ofertas por raio (10 a 100 km, padrao 10, ajuste na Conta), reserva uma unidade por vez, cancela dentro do prazo, apresenta o código na retirada.
 
 Regras centrais: uma reserva ativa por consumidor, retenção atômica de unidade (sem overbooking), 1 ou 2 faltas mandam o pedido para pendência de 30 min com aceite do comerciante, 3 faltas bloqueiam por 10 dias, tolerância de 15 min após a janela na retirada. Toda decisão crítica é validada no servidor.
 
@@ -51,7 +51,7 @@ Front React e API Hono no mesmo processo Bun; PostgreSQL em container com transa
 - `data/` — uploads e chaves VAPID (gerado em runtime, fora do git; o banco mora no volume Docker)
 - `docs/` — screenshots locais (requisitos originais fora do repo, com o dono do projeto)
 - `.pi/mcp.json` — config do Playwright MCP para QA (ver AGENTS.md)
-- `compose.yaml` (db + app), `compose.prod.yaml` + `Caddyfile` (TLS na VPS), `Dockerfile`
+- `compose.yaml` (db + app), `compose.prod.yaml` (override sem Caddy proprio: entra na rede `edge` do proxy central, ver cabecalho do arquivo), `Dockerfile`, `Caddyfile` (legado local)
 
 Detalhes de regras do projeto em `AGENTS.md`.
 
@@ -76,25 +76,25 @@ Pré-requisitos: Bun 1.x, Docker, Node com npx e Chrome instalado. Todos os coma
 
 - App em http://localhost:3000, API sob `/api`.
 - `bun run watch` sobe API com restart automático e rebuild do front com reload (aguarda o Postgres e roda o migrate antes); use `watch:api` ou `watch:web` para cada parte.
-- `bun test` recria o banco xepaja_test do zero e roda a suíte sem tocar no banco de dev; `bun run check` roda o tsc.
+- `bun run test` recria o banco xepaja_test do zero e roda a suíte sem tocar no banco de dev (`bun test` direto limpa o banco de dev, nunca usar); `bun run check` roda o tsc.
 - Contas demo do seed: `comercio-banca@exemplo.com`, `cliente-zeca@exemplo.com` e outras em `tools/seed.ts` (senhas no próprio arquivo, só para demo local).
 - QA de interface via Playwright MCP: no agent pi, conceda trust ao projeto para ativar `.pi/mcp.json` e confira em `/mcp` que `playwright` conectou.
 
-Variáveis de ambiente (ver .env.example): `PORT` (padrão 3000), `DATABASE_URL` e `DATABASE_URL_TEST`, `POSTGRES_*` e `APP_PORT` do compose, `DOMAIN` para o override de prod, `XEPAJA_URL` (padrão http://localhost:3000, usada pelo seed), `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` (sem elas, chaves geradas uma vez em `data/vapid.json`), `SESSION_TTL_DAYS` (padrão 7), `COOKIE_SECURE=1` (cookies seguros em produção HTTPS).
+Variáveis de ambiente (ver .env.example): `PORT` (padrão 3000), `DATABASE_URL` e `DATABASE_URL_TEST`, `POSTGRES_*` e `APP_PORT` do compose, `DOMAIN` para o override de prod, `XEPAJA_URL` (padrão http://localhost:3000, usada pelo seed), `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` (sem elas, chaves geradas uma vez em `data/vapid.json`), `SESSION_TTL_DAYS` (padrão 7), `COOKIE_SECURE=1` (cookies seguros em produção HTTPS), `RESEND_API_KEY` e `RESEND_FROM` (e-mail de reset de senha; sem chave o código sai no log do servidor).
 
 ## Demo na VPS
 
 - Exija portas 80/443 e DNS apontando para a VPS; defina DOMAIN e XEPAJA_URL=https://<dominio> no .env.
-- docker compose -f compose.yaml -f compose.prod.yaml up -d --build: sobe db + app + Caddy (TLS automático).
+- docker compose -f compose.yaml -f compose.prod.yaml up -d --build: sobe db + app na rede `edge`; o TLS e o proxy reverso sao do Caddy central da VPS, nao deste repo.
 - Na VPS, rode o seed contra a URL pública: XEPAJA_URL=https://<dominio> bun run seed.
 
 ## Endpoints
 
-- POST /api/auth/signup com name, cpf, email, password, role e, para consumer, search_radius_km. Retorna 201 com o usuário e cookie de sessão.
+- POST /api/auth/signup com name, cpf (aceita mascara 000.000.000-00, salva so digitos como texto), email, password, role. Consumidor novo sai com raio padrao de 10 km; o ajuste fino (10 a 100 km) e na Conta. Retorna 201 com o usuário e cookie de sessão.
 - POST /api/auth/login com email e password. Erro sempre genérico para não revelar se o e-mail existe.
 - POST /api/auth/logout encerra a sessão atual.
 - GET /api/auth/me retorna o usuário da sessão ou 401.
-- PATCH /api/users/me atualiza nome e, para consumer, o raio.
+- PATCH /api/users/me atualiza nome e, para consumer, o raio (10 a 100 km; merchant recebe 403).
 - GET /api/establishments/mine, POST /api/establishments e PATCH /api/establishments/mine (só merchant). Trocar o endereço exige GPS novo na mesma requisição (422 sem ele). Resposta inclui can_publish e publish_block_reason.
 - GET, POST /api/items e PATCH, DELETE /api/items/:id (só merchant, exige estabelecimento).
 - POST /api/offers cria rascunho (só merchant com GPS). GET /api/offers/mine lista com itens, restante e estado derivado.
@@ -102,7 +102,7 @@ Variáveis de ambiente (ver .env.example): `PORT` (padrão 3000), `DATABASE_URL`
 - PATCH /api/offers/:id edita livre sem reservas; com reservas ativas só orientações, resto volta 409.
 - POST /api/offers/:id/encerrar e POST /api/offers/:id/cancel com reason (cascata com avisos, sem falta).
 - POST /api/offers/:id/photo com multipart campo photo (jpeg, png, webp, até 5 MB). GET /api/offers/:id/photo serve o arquivo.
-- GET /api/offers/nearby com lat, lng e radius_km opcional (padrão o raio da conta). Só publicadas vigentes dentro do raio, ordenadas por distância, com distance_km.
+- GET /api/offers/nearby com lat, lng e radius_km opcional entre 10 e 100 km (padrão o raio da conta). Só publicadas vigentes dentro do raio, ordenadas por distância, com distance_km.
 - GET /api/offers/:id com detalhe e composição. Publicada abre a qualquer autenticado; rascunho alheio volta 404.
 - POST /api/reservations com offer_id e idempotency_key (só consumer, bloqueado volta 403). Confirmada direta sem faltas com código único; pendente de 30 minutos com 1 ou 2 faltas.
 - GET /api/reservations/active e /history com limites, faltas e bloqueio. POST /api/reservations/:id/cancel no prazo sem falta.
@@ -110,13 +110,13 @@ Variáveis de ambiente (ver .env.example): `PORT` (padrão 3000), `DATABASE_URL`
 - GET /api/notices com não lidos e POST /api/notices/:id/read.
 - POST /api/reservations/pickup/confirm com code (só merchant dono). Uso único, tolerância de 15 minutos após o fim, aviso ao consumidor.
 - GET /api/push/vapid-key, POST /api/push/subscribe e /unsubscribe por aparelho (só autenticado). Todo aviso tenta push sem bloquear; o aviso interno é o fallback.
-- POST /api/auth/password/forgot responde sempre igual; POST /api/auth/password/reset com token único de 1 hora, uso único, mata sessões. Sem e-mail no MVP: o código sai no log do servidor.
+- POST /api/auth/password/forgot responde sempre igual; POST /api/auth/password/reset com codigo de 5 caracteres (letras e numeros, sem ambiguos), unico, valido por 1 hora, uso unico, mata sessões. Envio por e-mail via Resend; sem chave o codigo sai no log do servidor.
 
 ## NFR e deploy
 
 - A API valida tudo no servidor; o front só antecipa formato.
 - GPS do consumidor vai só por query no nearby e nunca é persistido.
-- Dev local em http; produção com HTTPS via Caddy (compose.prod.yaml) à frente da app.
+- Dev local em http; produção com HTTPS via proxy central (rede `edge`, fora deste repo) à frente da app.
 - Carga local medida em ~130 ms; meta de 3 s com folga em rede local.
 
 ## Notas de PWA e offline

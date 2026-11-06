@@ -15,6 +15,21 @@ const DEMO_ACCOUNTS = [
   { label: "Cliente carlos", email: "cliente-carlos@exemplo.com", password: "cliente-carlos-123" },
 ];
 
+// Mascara 000.000.000-00 para exibicao; o servidor salva so digitos (texto,
+// preservando zero a esquerda). Usada no cadastro e coberta por teste unitario.
+export function maskCpf(value: string): string {
+  const d = value.replace(/\D/g, "").slice(0, 11);
+  const p1 = d.slice(0, 3);
+  const p2 = d.slice(3, 6);
+  const p3 = d.slice(6, 9);
+  const p4 = d.slice(9, 11);
+  let out = p1;
+  if (p2) out += `.${p2}`;
+  if (p3) out += `.${p3}`;
+  if (p4) out += `-${p4}`;
+  return out;
+}
+
 function isLocalDemo(): boolean {
   // Conveniencia para demonstracao local: em producao o bloco nem aparece.
   if (typeof window === "undefined") return false;
@@ -68,6 +83,7 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
   const [busy, setBusy] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [signupCpf, setSignupCpf] = useState("");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -268,7 +284,10 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
                 required
                 inputMode="numeric"
                 autoComplete="off"
-                placeholder="somente numeros"
+                placeholder="000.000.000-00"
+                maxLength={14}
+                value={signupCpf}
+                onChange={(e) => setSignupCpf(maskCpf(e.target.value))}
               />
             </div>
           </>
