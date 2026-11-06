@@ -86,13 +86,13 @@ describe("recuperacao de senha", () => {
     expect(row.token_hash).toHaveLength(64);
 
     // Token errado nao revela nada util e nao consome o verdadeiro.
-    const wrong = await reset("0".repeat(64), "nova-senha-71");
+    const wrong = await reset("XXXXX", "nova-senha-71");
     expect(wrong.status).toBe(400);
     expect((await wrong.json()).code).toBe("invalid_token");
 
-    // Para concluir o fluxo, gera-se um token conhecido via linha direta:
-    // (o token real saiu no log do servidor, fora do alcance do teste)
-    const known = "a".repeat(64);
+    // Para concluir o fluxo, gera-se um codigo conhecido via linha direta:
+    // (o codigo real saiu no log do servidor, fora do alcance do teste)
+    const known = "AB3KD";
     await getDb()`DELETE FROM password_resets WHERE user_id = ${user.id}`;
     await getDb()`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${createHash("sha256").update(known).digest("hex")}, ${new Date(Date.now() + 3600_000).toISOString()})`;
 
@@ -100,7 +100,8 @@ describe("recuperacao de senha", () => {
     expect(short.status).toBe(400);
     expect((await short.json()).code).toBe("invalid_password");
 
-    const ok = await reset(known, "nova-senha-71");
+    // Caixa nao importa: o codigo e comparado em maiusculas.
+    const ok = await reset(known.toLowerCase(), "nova-senha-71");
     expect(ok.status).toBe(200);
 
     // Uso unico.
@@ -117,7 +118,7 @@ describe("recuperacao de senha", () => {
 
   test("token expirado e rejeitado", async () => {
     const user = await signup();
-    const known = "b".repeat(64);
+    const known = "Q7M2P";
     await getDb()`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${createHash("sha256").update(known).digest("hex")}, ${new Date(Date.now() - 1000).toISOString()})`;
     const res = await reset(known, "nova-senha-73");
     expect(res.status).toBe(400);

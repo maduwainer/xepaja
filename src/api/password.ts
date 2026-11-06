@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { Resend } from "resend";
 import { getDb } from "./db";
 import { hashPassword, normalizeEmail, type AppEnv } from "./auth";
@@ -7,6 +7,21 @@ import { hashPassword, normalizeEmail, type AppEnv } from "./auth";
 export const passwordApp = new Hono<AppEnv>();
 
 const TOKEN_TTL_MS = 60 * 60_000;
+// Codigo curto de 5 caracteres para digitar (sem 0/O nem 1/I/l para nao confundir).
+const RESET_CODE_LENGTH = 5;
+const RESET_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generateResetCode(): string {
+  let code = "";
+  for (let i = 0; i < RESET_CODE_LENGTH; i++) {
+    code += RESET_CODE_ALPHABET[randomInt(RESET_CODE_ALPHABET.length)];
+  }
+  return code;
+}
+
+function hashResetCode(code: string): string {
+  return createHash("sha256").update(code.trim().toUpperCase()).digest("hex");
+}
 const GENERIC_FORGOT =
   "Se o e-mail estiver cadastrado, enviamos as instrucoes de redefinicao.";
 const RESET_URL_BASE = process.env.XEPAJA_URL ?? "http://localhost:3000";
@@ -55,10 +70,20 @@ passwordApp.post("/auth/password/forgot", async (c) => {
     if (user) {
       const db = getDb();
       await db`DELETE FROM password_resets WHERE user_id = ${user.id} AND used_at IS NULL`;
-      const token = randomBytes(32).toString("hex");
-      await db`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${createHash("sha256").update(token).digest("hex")}, ${new Date(Date.now() + TOKEN_TTL_MS).toISOString()})`;
+      // Garante codigo inedito entre pendentes (a busca do reset e global, sem email).
+      let code = "";
+      let codeHash = "";
+      for (let i = 0; i < 8; i++) {
+        code = generateResetCode();
+        codeHash = hashResetCode(code);
+        const clash = await db`SELECT 1 FROM password_resets WHERE token_hash = ${codeHash} AND used_at IS NULL`;
+        if (clash.length === 0) break;
+        codeHash = "";
+      }
+      if (!codeHash) throw new Error("nao foi possivel gerar codigo de reset unico");
+      await db`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${codeHash}, ${new Date(Date.now() + TOKEN_TTL_MS).toISOString()})`;
       await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('user', ${user.id}, 'password_forgot', ${null})`;
-      await sendResetEmail(email, token);
+      await sendResetEmail(email, code);
     }
   }
   return c.json({ ok: true, message: GENERIC_FORGOT });
@@ -69,7 +94,7 @@ passwordApp.post("/auth/password/reset", async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const token = body && typeof body.token === "string" ? body.token.trim() : "";
   const resetRows = token
-    ? await getDb()`SELECT id, user_id, expires_at, used_at FROM password_resets WHERE token_hash = ${createHash("sha256").update(token).digest("hex")}`
+    ? await getDb()`SELECT id, user_id, expires_at, used_at FROM password_resets WHERE token_hash = ${hashResetCode(token)}`
     : [];
   const row = (resetRows[0] as {
     id: number;

@@ -94,7 +94,7 @@ export function OffersView() {
   }
 
   return (
-    <section aria-labelledby="ofertas-titulo" className="card">
+    <section aria-labelledby="ofertas-titulo" className="card narrow-lg">
       <h1 id="ofertas-titulo">Minhas ofertas</h1>
       {error && (
         <p className="error" role="alert">
@@ -216,7 +216,7 @@ export function OffersView() {
           <label htmlFor="oferta-titulo">Titulo</label>
           <input id="oferta-titulo" name="title" required maxLength={120} />
         </div>
-        <div className="field">
+        <div className="field short">
           <label htmlFor="oferta-tipo">Tipo</label>
           <select id="oferta-tipo" name="kind" defaultValue="item">
             <option value="item">Item</option>
@@ -225,21 +225,23 @@ export function OffersView() {
         </div>
         <fieldset className="gps">
           <legend>Composicao (quantidade por unidade)</legend>
+          <div className="cols-2">
           {catalog.map((item) => (
-            <div className="field" key={item.id}>
+            <div className="field short" key={item.id}>
               <label htmlFor={`qty-${item.id}`}>
                 {item.name} ({item.unit})
               </label>
               <input id={`qty-${item.id}`} name={`qty-${item.id}`} inputMode="decimal" autoComplete="off" placeholder="0" />
             </div>
           ))}
+          </div>
         </fieldset>
         <div className="row">
-          <div className="field">
+          <div className="field short">
             <label htmlFor="oferta-total">Unidades ofertadas</label>
             <input id="oferta-total" name="total" required inputMode="numeric" autoComplete="off" placeholder="5" />
           </div>
-          <div className="field">
+          <div className="field short">
             <label htmlFor="oferta-preco">Preco (R$)</label>
             <input id="oferta-preco" name="price" inputMode="decimal" autoComplete="off" placeholder="10,00" />
           </div>

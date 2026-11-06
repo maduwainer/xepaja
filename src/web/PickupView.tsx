@@ -33,7 +33,7 @@ export function PickupView() {
   }
 
   return (
-    <section aria-labelledby="ret-titulo" className="card">
+    <section aria-labelledby="ret-titulo" className="card narrow-sm">
       <h1 id="ret-titulo">Confirmar retirada</h1>
       <p className="muted">
         Peca o codigo ao consumidor e confirme uma vez. Vale ate 15 minutos
@@ -53,7 +53,7 @@ export function PickupView() {
         </div>
       )}
       <form className="stack" onSubmit={handleSubmit}>
-        <div className="field">
+        <div className="field code">
           <label htmlFor="pickup-code">Codigo de retirada</label>
           <input
             id="pickup-code"

@@ -68,7 +68,7 @@ export function ItemsView() {
   }
 
   return (
-    <section aria-labelledby="itens-titulo" className="card">
+    <section aria-labelledby="itens-titulo" className="card narrow-lg">
       <h1 id="itens-titulo">Itens do estabelecimento</h1>
       <p className="muted">Nome e unidade de cada item. Eles compoem ofertas e caixas surpresa.</p>
       {error && error !== "Cadastre o estabelecimento antes dos itens." && (
@@ -102,13 +102,15 @@ export function ItemsView() {
       )}
       <form key={formKey} onSubmit={handleSubmit} className="stack">
         <h2 className="sub">{editing ? "Editar item" : "Novo item"}</h2>
-        <div className="field">
+        <div className="row">
+        <div className="field medium">
           <label htmlFor="item-nome">Nome</label>
           <input id="item-nome" name="name" required defaultValue={editing?.name ?? ""} maxLength={80} placeholder="ex. banana" />
         </div>
-        <div className="field">
+        <div className="field short">
           <label htmlFor="item-unidade">Unidade</label>
           <input id="item-unidade" name="unit" required defaultValue={editing?.unit ?? ""} maxLength={20} placeholder="ex. kg, un, maca" />
+        </div>
         </div>
         <div className="row">
           <button type="submit" className="btn primary" disabled={busy}>

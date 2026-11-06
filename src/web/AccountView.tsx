@@ -40,7 +40,7 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
   const blocked = user.blocked_until && new Date(user.blocked_until).getTime() > Date.now();
 
   return (
-    <section aria-labelledby="conta-titulo" className="card">
+    <section aria-labelledby="conta-titulo" className="card narrow-sm">
       <h1 id="conta-titulo">Minha conta</h1>
       <dl className="facts">
         <div>
@@ -65,12 +65,12 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
         )}
       </dl>
       <form onSubmit={handleSubmit} className="stack">
-        <div className="field">
+        <div className="field medium">
           <label htmlFor="conta-nome">Nome</label>
           <input id="conta-nome" name="name" defaultValue={user.name} maxLength={120} />
         </div>
         {user.role === "consumer" && (
-          <div className="field">
+          <div className="field short">
             <label htmlFor="conta-raio">Raio de busca (km, max 100)</label>
             <input
               id="conta-raio"

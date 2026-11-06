@@ -94,7 +94,7 @@ export function SearchView({ user, onReserved }: { user: UserDTO; onReserved: ()
 
   if (selected) {
     return (
-      <section aria-labelledby="detalhe-titulo" className="card">
+      <section aria-labelledby="detalhe-titulo" className="card narrow">
         <h1 id="detalhe-titulo">{selected.title}</h1>
         <img
           className="detail-photo"
@@ -182,7 +182,7 @@ export function SearchView({ user, onReserved }: { user: UserDTO; onReserved: ()
   }
 
   return (
-    <section aria-labelledby="buscar-titulo" className="card">
+    <section aria-labelledby="buscar-titulo" className="card narrow">
       <h1 id="buscar-titulo">Buscar ofertas</h1>
       <p className="muted">
         Raio atual: {user.search_radius_km} km (ajuste em Conta). A sua posicao e

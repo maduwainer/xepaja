@@ -32,6 +32,7 @@ export function App() {
   const [online, setOnline] = useState(
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     AuthApi.me()
@@ -109,18 +110,59 @@ export function App() {
       </a>
       <header className="topbar">
         <div className="wrap topbar-inner">
-          <p className="brand">XepaJá</p>
-          <p className="tagline">Ofertas perto de voce, retire no local</p>
+          <div className="topbar-row">
+            <div>
+              <p className="brand">XepaJá</p>
+              <p className="tagline">Ofertas perto de voce, retire no local</p>
+            </div>
+            {me && (
+              <button
+                type="button"
+                className="menu-toggle"
+                aria-expanded={menuOpen}
+                aria-controls="main-nav"
+                aria-label={menuOpen ? "Fechar menu" : "Abrir menu"}
+                onClick={() => setMenuOpen((o) => !o)}
+              >
+                <span aria-hidden="true">{menuOpen ? "\u2715" : "\u2630"}</span>
+              </button>
+            )}
+          </div>
+          {me && (
+            <nav id="main-nav" className={`topnav${menuOpen ? " open" : ""}`} aria-label="Navegacao principal">
+              <div role="tablist" aria-label="Telas" className="tabs">
+                {visibleViews.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={view === v.id}
+                    tabIndex={view === v.id ? 0 : -1}
+                    className={view === v.id ? "tab active" : "tab"}
+                    onClick={() => {
+                      setView(v.id);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+                <button type="button" className="tab logout" onClick={handleLogout}>
+                  Sair ({me.name.split(" ")[0]})
+                </button>
+              </div>
+            </nav>
+          )}
         </div>
       </header>
 
       <main id="conteudo" className="wrap">
-        <div className="status" role="status" aria-live="polite">
-          {apiOnline === null && "Verificando API..."}
-          {apiOnline === true && "API conectada."}
-          {apiOnline === false && "API fora do ar. Verifique o backend."}
-          {!online && " Voce esta sem conexao: reservas exigem confirmacao online."}
-        </div>
+        {(apiOnline === false || !online) && (
+          <div className="status" role="status" aria-live="polite" data-state={!online ? "offline" : undefined}>
+            {apiOnline === false && "API fora do ar. Verifique o backend."}
+            {!online && " Voce esta sem conexao: reservas exigem confirmacao online."}
+          </div>
+        )}
 
         {checkingSession ? (
           <section className="card" aria-live="polite">
@@ -135,7 +177,7 @@ export function App() {
                 setView(defaultViewFor(user.role));
               }}
             />
-            <section aria-labelledby="como-titulo" className="card">
+            <section aria-labelledby="como-titulo" className="card narrow-sm">
               <h2 id="como-titulo">Como funciona</h2>
               <ol className="steps">
                 <li>Comerciante publica oferta com foto, preco e janela de retirada.</li>
@@ -147,24 +189,6 @@ export function App() {
           </>
         ) : (
           <>
-            <nav className="card nav" aria-label="Navegacao principal">
-              <div className="row" role="group" aria-label="Telas">
-                {visibleViews.map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    className={view === v.id ? "btn primary" : "btn"}
-                    aria-pressed={view === v.id}
-                    onClick={() => setView(v.id)}
-                  >
-                    {v.label}
-                  </button>
-                ))}
-                <button type="button" className="btn" onClick={handleLogout}>
-                  Sair ({me.name.split(" ")[0]})
-                </button>
-              </div>
-            </nav>
 
             {view === "conta" && (
               <AccountView user={me} onUser={(u) => setMe(u)} />
@@ -188,7 +212,7 @@ export function App() {
       </main>
 
       <footer className="wrap footer">
-        <p>XepaJá — ofertas perto de você.</p>
+        <p>XepaJá, ofertas perto de você.</p>
       </footer>
     </>
   );

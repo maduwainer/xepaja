@@ -80,7 +80,7 @@ export function EstablishmentView() {
   const estab = data?.establishment ?? null;
 
   return (
-    <section aria-labelledby="estab-titulo" className="card">
+    <section aria-labelledby="estab-titulo" className="card narrow-lg">
       <h1 id="estab-titulo">Estabelecimento</h1>
       {data && (
         <p className="note" aria-live="polite">
@@ -103,21 +103,24 @@ export function EstablishmentView() {
           <label htmlFor="estab-nome">Nome do estabelecimento</label>
           <input id="estab-nome" name="name" required defaultValue={estab?.name ?? ""} maxLength={120} />
         </div>
-        <div className="field">
+        <div className="row">
+        <div className="field short">
           <label htmlFor="estab-tipo">Tipo</label>
           <select id="estab-tipo" name="kind" defaultValue={estab?.kind ?? "feira"}>
             <option value="feira">Feira</option>
             <option value="mercearia">Mercearia</option>
           </select>
         </div>
-        <div className="field">
+        <div className="field short">
           <label htmlFor="estab-cnpj">CNPJ (se tiver)</label>
           <input id="estab-cnpj" name="cnpj" inputMode="numeric" autoComplete="off" defaultValue={estab?.cnpj ?? ""} />
+        </div>
         </div>
         <div className="field">
           <label htmlFor="estab-end">Endereco de retirada</label>
           <input id="estab-end" name="address" required defaultValue={estab?.address_text ?? ""} autoComplete="street-address" />
         </div>
+        <div className="row">
         <div className="field">
           <label htmlFor="estab-ref">Referencia</label>
           <input id="estab-ref" name="reference" defaultValue={estab?.reference ?? ""} />
@@ -125,6 +128,7 @@ export function EstablishmentView() {
         <div className="field">
           <label htmlFor="estab-horario">Horario de funcionamento</label>
           <input id="estab-horario" name="hours" defaultValue={estab?.hours ?? ""} placeholder="ex. seg a sab, 7h as 13h" />
+        </div>
         </div>
         <fieldset className="gps">
           <legend>Posicao GPS do local de retirada</legend>
@@ -147,7 +151,7 @@ export function EstablishmentView() {
             </button>
           </div>
           <div className="row">
-            <div className="field">
+            <div className="field short">
               <label htmlFor="estab-lat">Latitude</label>
               <input
                 id="estab-lat"
@@ -158,7 +162,7 @@ export function EstablishmentView() {
                 placeholder="-15.6"
               />
             </div>
-            <div className="field">
+            <div className="field short">
               <label htmlFor="estab-lng">Longitude</label>
               <input
                 id="estab-lng"

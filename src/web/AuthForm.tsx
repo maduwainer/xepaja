@@ -22,6 +22,44 @@ function isLocalDemo(): boolean {
   return host === "localhost" || host === "127.0.0.1";
 }
 
+function PasswordField({ id, name, label, autoComplete, minLength, value, onChange }: {
+  id: string;
+  name: string;
+  label: string;
+  autoComplete: string;
+  minLength?: number;
+  value?: string;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <div className="password-wrap">
+        <input
+          id={id}
+          name={name}
+          type={show ? "text" : "password"}
+          required
+          autoComplete={autoComplete}
+          minLength={minLength}
+          value={value}
+          onChange={onChange}
+        />
+        <button
+          type="button"
+          className="password-toggle"
+          aria-pressed={show}
+          aria-label={show ? "Ocultar senha" : "Mostrar senha"}
+          onClick={() => setShow((s) => !s)}
+        >
+          {show ? "Ocultar" : "Mostrar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
   const [mode, setMode] = useState<"login" | "signup" | "forgot" | "reset">("login");
   const [role, setRole] = useState<Role>("consumer");
@@ -109,43 +147,47 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
   }
 
   const title =
-    mode === "login" ? "Entrar"
-    : mode === "signup" ? "Criar conta"
+    mode === "login" ? "Bem-vindo de volta"
+    : mode === "signup" ? "Crie sua conta"
     : mode === "forgot" ? "Esqueci a senha"
     : "Trocar a senha";
 
   return (
-    <section aria-labelledby="auth-titulo" className="card">
-      <h1 id="auth-titulo">{title}</h1>
-      {(mode === "forgot" || mode === "reset") && (
-        <div className="row" role="group" aria-label="Voltar ao acesso">
-          <button type="button" className="btn" onClick={() => go("login")}>
-            Voltar a entrar
-          </button>
-        </div>
-      )}
+    <section aria-labelledby="auth-titulo" className="card narrow-sm">
       {(mode === "login" || mode === "signup") && (
-      <div className="row" role="group" aria-label="Acao de acesso">
+      <div className="tabs auth-tabs" role="tablist" aria-label="Acesso">
         <button
           type="button"
-          className={mode === "login" ? "btn primary" : "btn"}
-          aria-pressed={mode === "login"}
+          role="tab"
+          aria-selected={mode === "login"}
+          tabIndex={mode === "login" ? 0 : -1}
+          className={mode === "login" ? "tab active" : "tab"}
           onClick={() => go("login")}
         >
           Entrar
         </button>
         <button
           type="button"
-          className={mode === "signup" ? "btn primary" : "btn"}
-          aria-pressed={mode === "signup"}
+          role="tab"
+          aria-selected={mode === "signup"}
+          tabIndex={mode === "signup" ? 0 : -1}
+          className={mode === "signup" ? "tab active" : "tab"}
           onClick={() => go("signup")}
         >
           Criar conta
         </button>
       </div>
       )}
+      <h1 id="auth-titulo">{title}</h1>
+      {(mode === "forgot" || mode === "reset") && (
+        <div>
+          <button type="button" className="btn small" onClick={() => go("login")}>
+            Voltar a entrar
+          </button>
+        </div>
+      )}
       {mode === "forgot" && (
-        <form onSubmit={handleForgot} className="stack">
+        <form onSubmit={handleForgot} className="stack auth-form">
           <p className="muted">Informe o e-mail da conta. A resposta e sempre a mesma, exista a conta ou nao.</p>
           <div className="field">
             <label htmlFor="forgot-email">E-mail</label>
@@ -162,15 +204,29 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
         </form>
       )}
       {mode === "reset" && (
-        <form onSubmit={handleReset} className="stack">
-          <div className="field">
-            <label htmlFor="reset-token">Codigo recebido</label>
-            <input id="reset-token" name="token" required autoComplete="off" spellCheck={false} />
+        <form onSubmit={handleReset} className="stack auth-form">
+          <div className="field code">
+            <label htmlFor="reset-token">Codigo recebido (5 letras e numeros)</label>
+            <input
+              id="reset-token"
+              name="token"
+              required
+              minLength={5}
+              maxLength={5}
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              placeholder="A3K9P"
+              style={{ textTransform: "uppercase" }}
+            />
           </div>
-          <div className="field">
-            <label htmlFor="reset-password">Nova senha (min 8 caracteres)</label>
-            <input id="reset-password" name="new_password" type="password" required minLength={8} autoComplete="new-password" />
-          </div>
+          <PasswordField
+            id="reset-password"
+            name="new_password"
+            label="Nova senha (min 8 caracteres)"
+            autoComplete="new-password"
+            minLength={8}
+          />
           {info && <p className="note" aria-live="polite">{info}</p>}
           {error && <p className="error" role="alert">{error}</p>}
           <button type="submit" className="btn primary" disabled={busy}>
@@ -179,32 +235,37 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
         </form>
       )}
       {(mode === "login" || mode === "signup") && (
-      <form onSubmit={handleSubmit} className="stack">
+      <form onSubmit={handleSubmit} className="stack auth-form">
         {mode === "signup" && (
           <>
-            <div className="row" role="group" aria-label="Perfil da conta">
+            <div className="tabs auth-tabs" role="tablist" aria-label="Perfil da conta">
               <button
                 type="button"
-                className={role === "consumer" ? "btn primary" : "btn"}
-                aria-pressed={role === "consumer"}
+                role="tab"
+                aria-selected={role === "consumer"}
+                tabIndex={role === "consumer" ? 0 : -1}
+                className={role === "consumer" ? "tab active" : "tab"}
                 onClick={() => setRole("consumer")}
               >
                 Consumidor
               </button>
               <button
                 type="button"
-                className={role === "merchant" ? "btn primary" : "btn"}
-                aria-pressed={role === "merchant"}
+                role="tab"
+                aria-selected={role === "merchant"}
+                tabIndex={role === "merchant" ? 0 : -1}
+                className={role === "merchant" ? "tab active" : "tab"}
                 onClick={() => setRole("merchant")}
               >
                 Comerciante
               </button>
             </div>
-            <div className="field">
+            <div className="field medium">
               <label htmlFor="auth-name">Nome</label>
               <input id="auth-name" name="name" required autoComplete="name" maxLength={120} />
             </div>
-            <div className="field">
+            <div className="row">
+            <div className="field short">
               <label htmlFor="auth-cpf">CPF</label>
               <input
                 id="auth-cpf"
@@ -216,7 +277,7 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
               />
             </div>
             {role === "consumer" && (
-              <div className="field">
+              <div className="field short">
                 <label htmlFor="auth-radius">Raio de busca (km, max 100)</label>
                 <input
                   id="auth-radius"
@@ -228,6 +289,7 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
                 />
               </div>
             )}
+            </div>
           </>
         )}
         <div className="field">
@@ -242,26 +304,22 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
             onChange={mode === "login" ? (e) => setLoginEmail(e.target.value) : undefined}
           />
         </div>
-        <div className="field">
-          <label htmlFor="auth-password">Senha</label>
-          <input
-            id="auth-password"
-            name="password"
-            type="password"
-            required
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            minLength={mode === "signup" ? 8 : undefined}
-            value={mode === "login" ? loginPassword : undefined}
-            onChange={mode === "login" ? (e) => setLoginPassword(e.target.value) : undefined}
-          />
-        </div>
+        <PasswordField
+          id="auth-password"
+          name="password"
+          label="Senha"
+          autoComplete={mode === "login" ? "current-password" : "new-password"}
+          minLength={mode === "signup" ? 8 : undefined}
+          value={mode === "login" ? loginPassword : undefined}
+          onChange={mode === "login" ? (e) => setLoginPassword(e.target.value) : undefined}
+        />
         {error && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
         <button type="submit" className="btn primary" disabled={busy}>
-          {busy ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
+          {busy ? "Aguarde..." : mode === "login" ? "Entrar na conta" : "Criar minha conta"}
         </button>
         {mode === "login" && (
           <button type="button" className="btn" onClick={() => go("forgot")}>
@@ -271,25 +329,26 @@ export function AuthForm({ onAuth }: { onAuth: (user: UserDTO) => void }) {
       </form>
       )}
       {mode === "login" && isLocalDemo() && (
-        <div className="note">
-          <p className="muted">Contas de demonstracao: toque para preencher e depois Entrar.</p>
-          <div className="row" role="group" aria-label="Contas de demonstracao">
+        <details className="demo">
+          <summary>Contas de demonstracao: toque para preencher e depois Entrar na conta.</summary>
+          <div className="demo-grid" role="group" aria-label="Contas de demonstracao">
             {DEMO_ACCOUNTS.map((d) => (
               <button
                 key={d.email}
                 type="button"
                 className="btn small"
+                title={`${d.email} / ${d.password}`}
                 onClick={() => {
                   setLoginEmail(d.email);
                   setLoginPassword(d.password);
                   setError(null);
                 }}
               >
-                {d.label}: {d.email} / {d.password}
+                {d.label}
               </button>
             ))}
           </div>
-        </div>
+        </details>
       )}
     </section>
   );

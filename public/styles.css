@@ -38,7 +38,7 @@ body {
 
 .wrap {
   width: 100%;
-  max-width: 720px;
+  max-width: 880px;
   margin: 0 auto;
   padding: 0 16px;
 }
@@ -65,9 +65,10 @@ body {
 .topbar {
   background: var(--brand);
   color: var(--brand-ink);
+  box-shadow: 0 2px 12px rgba(11, 90, 48, 0.28);
 }
 
-.topbar-inner { padding: 18px 16px; }
+.topbar-inner { padding: 14px 16px 0; max-width: 1080px; }
 
 .brand {
   margin: 0;
@@ -152,6 +153,12 @@ main.wrap {
 .btn.primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
 .btn:not(.primary):hover { background: var(--sage); }
 
+/* No desktop o alvo de toque pode ser um pouco menos alto que no mobile */
+@media (min-width: 640px) {
+  .btn { min-height: 44px; padding: 10px 18px; }
+  .btn.small { min-height: 38px; }
+}
+
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .field { margin-top: 12px; }
@@ -196,6 +203,63 @@ main.wrap {
   display: grid;
   gap: 12px;
   margin-top: 12px;
+}
+
+/* Formularios contidos: 880px de card e campo demais para leitura e mira.
+   Listas (.list, .facts, .map) seguem full-width; so form limita. */
+form.stack { max-width: 640px; }
+form.stack.auth-form { max-width: 400px; }
+
+/* Campos curtos lado a lado no desktop, empilhados no mobile */
+.stack .row { margin-top: 0; }
+.row > .field {
+  flex: 1 1 160px;
+  min-width: 0;
+  margin-top: 0;
+}
+.field.short input,
+.field.short select { max-width: 240px; }
+.field.medium input { max-width: 420px; }
+.gps .field input { max-width: 220px; }
+
+/* Codigo de retirada: curto, centralizado, monoespacado */
+.field.code input {
+  max-width: 260px;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  font-size: 1.35rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* Senha com botao mostrar/ocultar dentro do campo */
+.password-wrap { position: relative; max-width: 100%; }
+.password-wrap input {
+  width: 100%;
+  padding-right: 104px;
+}
+.password-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-height: 36px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--brand);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.password-toggle:hover { background: var(--sage); }
+
+/* Duas colunas so no desktop */
+.cols-2 { display: grid; gap: 0 12px; grid-template-columns: 1fr; }
+@media (min-width: 640px) {
+  .cols-2 { grid-template-columns: 1fr 1fr; }
 }
 
 /* Linha de erro: rosado + dot Mamao (Q15=1) */
@@ -435,4 +499,142 @@ img, svg, video { max-width: 100%; }
   align-items: center;
   justify-content: center;
   flex: none;
+}
+
+/* Navegacao principal em abas na barra superior */
+.topbar-inner { padding: 14px 16px 0; }
+.topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.menu-toggle {
+  appearance: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  background: transparent;
+  color: #fff;
+  font-size: 1.4rem;
+  cursor: pointer;
+  flex: none;
+}
+.menu-toggle:hover { background: rgba(255, 255, 255, 0.15); }
+.topnav { margin-top: 10px; padding-bottom: 10px; }
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+}
+.tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #fff;
+  opacity: 0.85;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 10px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  border-radius: 10px 10px 0 0;
+  line-height: 1.2;
+}
+.tab:hover { background: rgba(255, 255, 255, 0.15); opacity: 1; }
+.tab:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+.tab.active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.22);
+  border-bottom-color: #fff;
+}
+.tab.logout {
+  margin-left: auto;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  padding: 8px 16px;
+  min-height: 40px;
+  align-self: center;
+}
+.tab.logout:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* Abas claras dentro dos cards (entrada, perfil) */
+.card .tabs {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.card .tab { color: var(--brand); opacity: 0.75; }
+.card .tab:hover { background: var(--sage); opacity: 1; }
+.card .tab:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+.card .tab.active {
+  background: var(--sage);
+  border-bottom-color: var(--brand);
+  opacity: 1;
+}
+.auth-tabs { margin-bottom: 14px; }
+
+/* Contas demo recolhidas: nao poluem a entrada */
+.demo {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  background: var(--sage);
+  border-radius: 14px;
+}
+.demo summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 12px 4px;
+  line-height: 1.4;
+}
+.demo summary::marker { color: var(--brand); }
+.demo-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.footer { padding-bottom: 24px; color: var(--muted); font-size: 0.85rem; text-align: center; }
+
+/* Cards contidos e centralizados: telas so de formulario nao precisam de 880px.
+   Listas (.list, .facts com space-between, .map) seguem no card largo. */
+.card.narrow-sm { max-width: 480px; width: 100%; justify-self: center; }
+.card.narrow { max-width: 600px; width: 100%; justify-self: center; }
+.card.narrow-lg { max-width: 720px; width: 100%; justify-self: center; }
+
+@media (max-width: 639px) {
+  .menu-toggle { display: inline-flex; }
+  .card > .btn.primary { width: 100%; }
+  .topnav { display: none; padding-bottom: 12px; }
+  .topnav.open { display: block; }
+  .topnav .tabs {
+    flex-direction: column;
+    align-items: stretch;
+    border-bottom: 0;
+    gap: 4px;
+  }
+  .topnav .tab {
+    text-align: left;
+    border-bottom: 0;
+    border-left: 4px solid transparent;
+    border-radius: 10px;
+  }
+  .topnav .tab.active { border-left-color: #fff; }
+  .topnav .tab.logout { margin-left: 0; text-align: center; }
+}
+@media (min-width: 640px) {
+  .topnav { display: block; }
 }
