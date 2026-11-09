@@ -86,6 +86,7 @@ Variáveis de ambiente (ver .env.example): `PORT` (padrão 3000), `DATABASE_URL`
 
 - Exija portas 80/443 e DNS apontando para a VPS; defina DOMAIN e XEPAJA_URL=https://<dominio> no .env.
 - docker compose -f compose.yaml -f compose.prod.yaml up -d --build: sobe db + app na rede `edge`; o TLS e o proxy reverso sao do Caddy central da VPS, nao deste repo.
+- Apos o deploy, purgar o cache da Cloudflare do dominio (estatico com max-age alto no edge); sem isso o navegador segue recebendo bundle, CSS e sw.js antigos.
 - Na VPS, rode o seed contra a URL pública: XEPAJA_URL=https://<dominio> bun run seed.
 
 ## Endpoints
