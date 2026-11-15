@@ -125,6 +125,10 @@ Status em 2026-11-03: deploy na VPS feito e verificado: app + db em Docker em /o
 
 Status em 2026-11-06: navegacao em abas com topbar verde e burger no mobile, formularios contidos e centralizados, codigo de recuperacao curto de 5 caracteres, raio fora do cadastro (padrao 10 km) com slider de 10 a 100 km na Conta, mascara de CPF 000.000.000-00 salvando so digitos como texto, e varredura de validacoes no servidor (tetos de tamanho e numero, delete de item em uso volta 409) coberta por tests/validation.test.ts; suite em 73 testes, deploys 48fcf66 e 938304d no ar na VPS verificados.
 
+Status em 2026-11-14: Minhas reservas passou a ter historico paginado, filtros pela data da solicitacao e estados finais existentes, detalhes da reserva e ativa sempre visivel. Novos pedidos preservam composicao, estabelecimento, condicoes e copia independente da foto. Codigo de retirada consultavel apenas pelo titular enquanto confirmada, com copia cifrada e chave persistente separada do banco; comerciante nao recebe o codigo no aceite. Manutencao autorizada recriou reservas locais e de producao mantendo quantidade, estados e vinculos, com backup previo e auditoria. Regras de backup e operacao em docs/reservas.md.
+
+Status em 2026-11-15: Minhas reservas sem pendentes, ofertas com abas e Nova oferta em tela cheia, fotos no cadastro com trava pos-publicacao, retirada em 2 passos com previa, login novo com logo X, contadores e footer Bell8. Testes 78/78 e build ok.
+
 Ordem sugerida, cada fase com criterio de pronto ligado aos CA:
 
 - Fase 0 fundacao (feita em 2026-10-11): layout com app React, API Hono e schema sqlite na epoca (repo achatado para a raiz em 2026-10-16 e banco migrado para PostgreSQL, ver Status) mais migrations e seeds; scripts bun para dev, teste, migrate e seed; base PWA com HTTPS, manifesto e service worker; tela offline. Criterio atingido: bun run watch sobe a API e rebuilda o front com live reload, /api/health responde, estaticos e fallback SPA funcionam, migrate abre limpo.

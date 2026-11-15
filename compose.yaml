@@ -42,6 +42,8 @@ services:
       - "${APP_PORT:-3000}:3000"
     volumes:
       - ./data/uploads:/app/data/uploads
+      - ./data/secrets:/app/data/secrets
+      - ./data/reservation-backups:/app/data/reservation-backups
       - ./data/vapid.json:/app/data/vapid.json
 
 volumes:

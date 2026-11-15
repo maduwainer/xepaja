@@ -411,18 +411,14 @@ describe("reservas validam tudo", () => {
     });
     expect(r1.status).toBe(201);
     const created1 = (await r1.json()).reservation as { state: string; id: number };
-    expect(created1.state).toBe("pendente");
-    const incomingRes = await app.request("/api/reservations/incoming", { headers: { Cookie: cookie } });
-    const pendingId = (await incomingRes.json()) as { reservations: { id: number; state: string }[] };
-    const target = pendingId.reservations.find((x) => x.state === "pendente");
-    expect(target).toBeDefined();
+    expect(created1.state).toBe("confirmada");
     for (const body of [{}, { reason: "m".repeat(201) }]) {
-      const res = await app.request(`/api/reservations/${target!.id}/refuse`, {
+      const res = await app.request(`/api/reservations/${created1.id}/refuse`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Cookie: cookie },
         body: JSON.stringify(body),
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(410);
     }
     const confirmada = await publishedOffer(cookie, itemId);
     const c2 = await consumerWithMisses(0);

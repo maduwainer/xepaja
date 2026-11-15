@@ -13,6 +13,7 @@ export type AppEnv = { Variables: { user: SessionUser } };
 export interface SessionUser {
   id: number;
   name: string;
+  cpf: string;
   email: string;
   role: Role;
   search_radius_km: number;
@@ -23,6 +24,7 @@ export interface SessionUser {
 interface UserRow {
   id: number;
   name: string;
+  cpf: string;
   email: string;
   role: Role;
   search_radius_km: number;
@@ -34,6 +36,7 @@ export function toUserDTO(row: UserRow): SessionUser {
   return {
     id: row.id,
     name: row.name,
+    cpf: row.cpf ?? "",
     email: row.email,
     role: row.role,
     search_radius_km: row.search_radius_km,
@@ -142,7 +145,7 @@ export async function requireAuth(c: Context<AppEnv>, next: Next) {
   const user = await getSessionUser(c);
   if (!user) {
     return c.json(
-      { ok: false, code: "unauthorized", message: "Sessao encerrada. Entre novamente." },
+      { ok: false, code: "unauthorized", message: "Sessão encerrada. Entre novamente." },
       401,
     );
   }
@@ -154,13 +157,13 @@ export async function requireMerchant(c: Context<AppEnv>, next: Next) {
   const user = await getSessionUser(c);
   if (!user) {
     return c.json(
-      { ok: false, code: "unauthorized", message: "Sessao encerrada. Entre novamente." },
+      { ok: false, code: "unauthorized", message: "Sessão encerrada. Entre novamente." },
       401,
     );
   }
   if (user.role !== "merchant") {
     return c.json(
-      { ok: false, code: "forbidden", message: "Operacao restrita ao comerciante." },
+      { ok: false, code: "forbidden", message: "Operação restrita ao comerciante." },
       403,
     );
   }

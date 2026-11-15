@@ -1,11 +1,18 @@
 import { Hono } from "hono";
+import type { JSONValue } from "postgres";
 import { createHash, randomBytes } from "node:crypto";
 import { getDb, type DbClient } from "./db";
 import { sendPushToUser } from "./push";
 import { requireAuth, requireMerchant, withinLen, type AppEnv, type SessionUser } from "./auth";
-import { effectiveState, remainingUnits } from "./offers";
+import { remainingUnits } from "./offers";
+import { captureReservationSnapshot, encryptPickupCode, decryptPickupCode, formatNoticeDate } from "./reservation-data";
+import type { ReservationSnapshot } from "../shared/types";
 
 export const reservationsApp = new Hono<AppEnv>();
+reservationsApp.use("/reservations/*", async (c, next) => {
+  c.header("Cache-Control", "private, no-store");
+  await next();
+});
 
 const PENDING_MINUTES = 30;
 const CANCEL_TOLERANCE_MINUTES = 15;
@@ -24,7 +31,7 @@ function minISO(a: string, b: string): string {
   return a < b ? a : b;
 }
 
-// Codigo unico de uso unico: 6 caracteres sem ambiguos. Guarda-se so o hash.
+// Código de uso único: hash para validar e cópia cifrada para consulta do titular.
 function newPickupCode(): { code: string; hash: string } {
   const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const bytes = randomBytes(6);
@@ -103,7 +110,7 @@ export async function sweepExpiries(): Promise<{ expired_pending: number; expire
       "request_expired",
       p.offer_id,
       p.id,
-      `O pedido da oferta "${p.title}" expirou sem decisao. Nenhuma falta foi registrada e voce ja pode pedir de novo.`,
+      `O pedido da oferta "${p.title}" expirou sem decisão. Nenhuma falta foi registrada e você já pode pedir de novo.`,
     );
     await audit("reservation", p.id, "expired_pending", null);
     expired_pending += 1;
@@ -131,7 +138,7 @@ export async function sweepExpiries(): Promise<{ expired_pending: number; expire
       r.id,
       blocked_until
         ? `Terceira falta na oferta "${r.title}". Novas reservas bloqueadas por 10 dias.`
-        : `Falta registrada na oferta "${r.title}" (retirada nao feita). Voce tem ${misses} falta(s) desde o ultimo desbloqueio.`,
+        : `Falta registrada na oferta "${r.title}" (retirada não feita). Você tem ${misses} falta(s) desde o último desbloqueio.`,
     );
     await audit("reservation", r.id, "expired_miss", null);
     expired_confirmed += 1;
@@ -156,16 +163,17 @@ export async function sweepExpiries(): Promise<{ expired_pending: number; expire
       "pickup_soon",
       u.offer_id,
       u.id,
-      `A retirada da oferta "${u.title}" termina em breve (${u.pickup_until}). Nao perca o prazo para evitar falta.`,
+      `A retirada da oferta "${u.title}" termina em breve (${formatNoticeDate(u.pickup_until)}). Não perca o prazo para evitar falta.`,
     );
   }
   return { expired_pending, expired_confirmed };
 }
 
 async function serializeConsumer(row: ReservationRow, code?: string) {
-  const offerRows = await getDb()`SELECT title, pickup_from, gps_lat, gps_lng, photo_path
-       FROM offers WHERE id = ${row.offer_id}`;
-  const offer = offerRows[0] as { title: string; pickup_from: string; gps_lat: number | null; gps_lng: number | null; photo_path: string };
+  const [data] = await getDb()`SELECT snapshot, pickup_code_encrypted FROM reservations WHERE id = ${row.id}`;
+  const snapshot = (data?.snapshot ?? null) as ReservationSnapshot | null;
+  const offer = snapshot ?? { title: "Oferta sem título registrado", pickup_from: null, gps_lat: null, gps_lng: null, photo_path: "" };
+  const pickupCode = row.state === "confirmada" ? (code ?? decryptPickupCode(data?.pickup_code_encrypted ?? "")) : undefined;
   return {
     id: row.id,
     offer_id: row.offer_id,
@@ -174,14 +182,25 @@ async function serializeConsumer(row: ReservationRow, code?: string) {
     has_photo: offer.photo_path !== "",
     price_cents: row.price_cents,
     address_snapshot: row.address_snapshot,
-    gps_lat: offer.gps_lat,
-    gps_lng: offer.gps_lng,
+    gps_lat: snapshot?.gps_lat ?? row.gps_lat,
+    gps_lng: snapshot?.gps_lng ?? row.gps_lng,
     pickup_from: offer.pickup_from,
     pickup_until: row.pickup_until,
     pending_expires_at: row.pending_expires_at,
     cancel_before: nowISO(new Date(new Date(row.pickup_until).getTime() - CANCEL_TOLERANCE_MINUTES * 60_000)),
     created_at: row.created_at,
-    ...(code ? { pickup_code: code } : {}),
+    snapshot_available: !!snapshot,
+    establishment_name: snapshot?.establishment_name ?? null,
+    merchant_name: snapshot?.merchant_name ?? null,
+    reference: snapshot?.reference ?? null,
+    kind: snapshot?.kind ?? null,
+    items: snapshot?.items ?? null,
+    storage_notes: snapshot?.storage_notes ?? null,
+    box_description: (snapshot as ReservationSnapshot | null)?.box_description ?? null,
+    photos: (snapshot as ReservationSnapshot | null)?.photos ?? null,
+    cancel_reason: row.cancel_reason,
+    quantity: 1,
+    ...(pickupCode ? { pickup_code: pickupCode } : {}),
   };
 }
 
@@ -191,7 +210,7 @@ reservationsApp.post("/reservations", requireAuth, async (c) => {
   const user = c.get("user");
   if (user.role !== "consumer") {
     return c.json(
-      { ok: false, code: "forbidden", message: "Reservas sao do perfil consumidor." },
+      { ok: false, code: "forbidden", message: "Reservas são do perfil consumidor." },
       403,
     );
   }
@@ -204,13 +223,13 @@ reservationsApp.post("/reservations", requireAuth, async (c) => {
   const offerId: number = rawOfferId;
   if (!key) {
     return c.json(
-      { ok: false, code: "idempotency_required", message: "Reenvie com a mesma chave de idempotencia." },
+      { ok: false, code: "idempotency_required", message: "Reenvie com a mesma chave de idempotência." },
       400,
     );
   }
   if (!withinLen(key, 120)) {
     return c.json(
-      { ok: false, code: "invalid_idempotency", message: "Chave de idempotencia precisa ter ate 120 caracteres." },
+      { ok: false, code: "invalid_idempotency", message: "Chave de idempotência precisa ter até 120 caracteres." },
       400,
     );
   }
@@ -235,18 +254,20 @@ reservationsApp.post("/reservations", requireAuth, async (c) => {
   // e o catch converte em resposta. Throw inline estreita os tipos.
   try {
     const created = await db.begin(async (tx) => {
+      // Serializa também pedidos do mesmo consumidor em ofertas diferentes.
+      await tx`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`;
       const keyRows = await tx`SELECT id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at FROM reservations WHERE idempotency_key = ${key}`;
       const existingKey = (keyRows[0] as ReservationRow | undefined) ?? null;
       if (existingKey) {
         if (existingKey.consumer_id !== user.id || existingKey.offer_id !== offerId) {
-          throw { __httpFail: true, status: 409, body: { ok: false, code: "idempotency_conflict", message: "Chave de idempotencia ja usada em outro pedido." } };
+          throw { __httpFail: true, status: 409, body: { ok: false, code: "idempotency_conflict", message: "Chave de idempotência já usada em outro pedido." } };
         }
         return { reservation: existingKey, repeated: true as const, code: undefined as string | undefined };
       }
 
-      const activeRows = await tx`SELECT id FROM reservations WHERE consumer_id = ${user.id} AND state IN ('pendente','confirmada')`;
+      const activeRows = await tx`SELECT id FROM reservations WHERE consumer_id = ${user.id} AND state = 'confirmada'`;
       if (activeRows.length > 0) {
-        throw { __httpFail: true, status: 409, body: { ok: false, code: "already_active", message: "Voce ja tem uma reserva ativa. Cancele ou conclua antes de pedir de novo." } };
+        throw { __httpFail: true, status: 409, body: { ok: false, code: "already_active", message: "Você já tem uma reserva ativa. Cancele ou conclua antes de pedir de novo." } };
       }
 
       // Trava a linha da oferta: dois pedidos simultaneos na ultima unidade
@@ -273,49 +294,40 @@ reservationsApp.post("/reservations", requireAuth, async (c) => {
         throw { __httpFail: true, status: 409, body: { ok: false, code: "sold_out", message: "Oferta esgotada." } };
       }
 
-      // Sem faltas confirma direto; com uma ou duas fica pendente de aceite.
-      const direct = block.misses === 0;
-      const code = direct ? newPickupCode() : null;
+      // Sem pendentes: toda reserva nasce confirmada. Faltas/bloqueio seguem para no-show.
+      const code = newPickupCode();
+      const snapshot = await captureReservationSnapshot(tx, offer.id);
       const insertedRows = await tx`INSERT INTO reservations
          (consumer_id, offer_id, state, idempotency_key, pickup_code_hash,
-          price_cents, address_snapshot, pickup_until, pending_expires_at)
-         VALUES (${user.id}, ${offer.id}, ${direct ? "confirmada" : "pendente"}, ${key},
-          ${code ? code.hash : ""}, ${offer.price_cents}, ${offer.address_snapshot},
+          price_cents, address_snapshot, pickup_until, pending_expires_at, snapshot, pickup_code_encrypted, gps_lat, gps_lng)
+         VALUES (${user.id}, ${offer.id}, 'confirmada', ${key},
+          ${code.hash}, ${offer.price_cents}, ${offer.address_snapshot},
           ${offer.pickup_until}::timestamptz,
-          ${direct ? null : minISO(minutesFromNow(PENDING_MINUTES), offer.pickup_until)}::timestamptz)
+          NULL,
+          ${tx.json(snapshot as unknown as JSONValue)}, ${encryptPickupCode(code.code)}, ${snapshot.gps_lat}, ${snapshot.gps_lng})
          RETURNING id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at`;
       const inserted = insertedRows[0] as ReservationRow;
 
       const ownerRows = await tx`SELECT owner_id FROM establishments WHERE id = ${offer.establishment_id}`;
       const owner = ownerRows[0] as { owner_id: number };
-      if (direct) {
-        await notify(
-          user.id,
-          "reservation_confirmed",
-          offer.id,
-          inserted.id,
-          `Reserva confirmada na oferta "${offer.title}". Retire ate ${offer.pickup_until} com seu codigo.`,
-          tx,
-        );
-        await notify(
-          owner.owner_id,
-          "reservation_confirmed",
-          offer.id,
-          inserted.id,
-          `Nova reserva confirmada na oferta "${offer.title}". Prepare a unidade para retirada.`,
-          tx,
-        );
-      } else {
-        await notify(
-          owner.owner_id,
-          "request_pending",
-          offer.id,
-          inserted.id,
-          `Novo pedido pendente na oferta "${offer.title}". Decida em ate 30 minutos.`,
-          tx,
-        );
-      }
-      await audit("reservation", inserted.id, direct ? "confirmed" : "requested_pending", user.id, tx);
+      await notify(
+        user.id,
+        "reservation_confirmed",
+        offer.id,
+        inserted.id,
+        `Reserva confirmada na oferta "${offer.title}". Retire até ${formatNoticeDate(offer.pickup_until)} com seu código.`,
+        tx,
+      );
+      await notify(
+        owner.owner_id,
+        "reservation_confirmed",
+        offer.id,
+        inserted.id,
+        `Nova reserva confirmada na oferta "${offer.title}". Prepare a unidade para retirada.`,
+        tx,
+      );
+      await audit("reservation", inserted.id, "confirmed", user.id, tx);
+      return { reservation: inserted, repeated: false as const, code: code.code };
       return { reservation: inserted, repeated: false as const, code: code?.code };
     });
     return c.json(
@@ -337,7 +349,7 @@ reservationsApp.get("/reservations/active", requireAuth, async (c) => {
   await sweepExpiries();
   const block = await refreshBlock(user.id);
   const activeRows = await getDb()`SELECT id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at FROM reservations
-       WHERE consumer_id = ${user.id} AND state IN ('pendente','confirmada')
+       WHERE consumer_id = ${user.id} AND state = 'confirmada'
        ORDER BY id DESC LIMIT 1`;
   const row = (activeRows[0] as ReservationRow | undefined) ?? null;
   return c.json({
@@ -349,11 +361,29 @@ reservationsApp.get("/reservations/active", requireAuth, async (c) => {
 });
 
 reservationsApp.get("/reservations/history", requireAuth, async (c) => {
+  const state = c.req.query("state") ?? "";
+  const from = c.req.query("from") ?? null;
+  const until = c.req.query("until") ?? null; // limite exclusivo, calculado no fuso do consumidor
+  const offset = Number(c.req.query("offset") ?? 0);
+  const limit = Number(c.req.query("limit") ?? 20);
+  const validDate = (v: string | null) => v === null || (/^\d{4}-\d{2}-\d{2}T/.test(v) && Number.isFinite(Date.parse(v)));
+  if ((state && !["recusada", "retirada", "cancelada", "expirada"].includes(state)) ||
+      !validDate(from) || !validDate(until) || (from && until && Date.parse(from) >= Date.parse(until)) ||
+      !Number.isSafeInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+    return c.json({ ok: false, code: "invalid_filters", message: "Informe filtros e período válidos." }, 400);
+  }
   await sweepExpiries();
-  const rows = await getDb()`SELECT id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at FROM reservations
-       WHERE consumer_id = ${c.get("user").id} AND state NOT IN ('pendente','confirmada')
-       ORDER BY id DESC LIMIT 50` as ReservationRow[];
-  return c.json({ ok: true, reservations: await Promise.all(rows.map((r) => serializeConsumer(r))) });
+  const db = getDb();
+  const userId = c.get("user").id;
+  const where = db`consumer_id = ${userId} AND state IN ('recusada','retirada','cancelada','expirada')
+    AND (${state} = '' OR state = ${state})
+    AND (${from}::timestamptz IS NULL OR created_at >= ${from}::timestamptz)
+    AND (${until}::timestamptz IS NULL OR created_at < ${until}::timestamptz)`;
+  const rows = await db`SELECT * FROM reservations WHERE ${where}
+    ORDER BY created_at DESC, id DESC LIMIT ${limit} OFFSET ${offset}` as ReservationRow[];
+  const [count] = await db`SELECT COUNT(*)::int AS total FROM reservations WHERE ${where}`;
+  return c.json({ ok: true, reservations: await Promise.all(rows.map(r => serializeConsumer(r))),
+    total: count.total, has_more: offset + rows.length < count.total });
 });
 
 // RF retirada: comerciante confirma pelo codigo unico, uma vez, dentro da
@@ -364,22 +394,22 @@ reservationsApp.post("/reservations/pickup/confirm", requireMerchant, async (c) 
   const raw = body && typeof body.code === "string" ? body.code : "";
   const code = raw.trim().toUpperCase();
   if (!code) {
-    return c.json({ ok: false, code: "code_required", message: "Informe o codigo de retirada." }, 400);
+    return c.json({ ok: false, code: "code_required", message: "Informe o código de retirada." }, 400);
   }
   const hash = createHash("sha256").update(code).digest("hex");
   const db = getDb();
   const codeRows = await db`SELECT id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at FROM reservations WHERE pickup_code_hash = ${hash}`;
   const row = (codeRows[0] as ReservationRow | undefined) ?? null;
   if (!row || row.state !== "confirmada" || !(await ownOfferId(c.get("user").id, row.offer_id))) {
-    return c.json({ ok: false, code: "invalid_code", message: "Codigo invalido ou ja usado." }, 404);
+    return c.json({ ok: false, code: "invalid_code", message: "Código inválido ou já usado." }, 404);
   }
   // O sweep ja expirou confirmadas alem da tolerancia; a guarda abaixo cobre corrida.
   if (new Date(row.pickup_until).getTime() + GRACE_MINUTES * 60_000 < Date.now()) {
-    return c.json({ ok: false, code: "invalid_code", message: "Codigo invalido ou ja usado." }, 404);
+    return c.json({ ok: false, code: "invalid_code", message: "Código inválido ou já usado." }, 404);
   }
-  const changed = await db`UPDATE reservations SET state = 'retirada', pickup_code_hash = '' WHERE id = ${row.id} AND state = 'confirmada' RETURNING id`;
+  const changed = await db`UPDATE reservations SET state = 'retirada', pickup_code_hash = '', pickup_code_encrypted = '', picked_at = now() WHERE id = ${row.id} AND state = 'confirmada' RETURNING id`;
   if (changed.length === 0) {
-    return c.json({ ok: false, code: "invalid_code", message: "Codigo invalido ou ja usado." }, 404);
+    return c.json({ ok: false, code: "invalid_code", message: "Código inválido ou já usado." }, 404);
   }
   const offerRows = await db`SELECT title FROM offers WHERE id = ${row.offer_id}`;
   const offer = offerRows[0] as { title: string };
@@ -390,7 +420,7 @@ reservationsApp.post("/reservations/pickup/confirm", requireMerchant, async (c) 
     "pickup_confirmed",
     row.offer_id,
     row.id,
-    `Retirada confirmada na oferta "${offer.title}". Obrigado por evitar desperdicio!`,
+    `Retirada confirmada na oferta "${offer.title}". Obrigado por evitar desperdício!`,
   );
   await audit("reservation", row.id, "picked_up", c.get("user").id);
   return c.json({
@@ -416,12 +446,7 @@ reservationsApp.post("/reservations/:id/cancel", requireAuth, async (c) => {
     : [];
   const row = (cancelRows[0] as ReservationRow | undefined) ?? null;
   if (!row || row.consumer_id !== user.id) {
-    return c.json({ ok: false, code: "not_found", message: "Reserva nao encontrada." }, 404);
-  }
-  if (row.state === "pendente") {
-    await getDb()`UPDATE reservations SET state = 'cancelada' WHERE id = ${id}`;
-    await audit("reservation", id, "cancelled_consumer", user.id);
-    return c.json({ ok: true });
+    return c.json({ ok: false, code: "not_found", message: "Reserva não encontrada." }, 404);
   }
   if (row.state === "confirmada") {
     const deadline = new Date(row.pickup_until).getTime() - CANCEL_TOLERANCE_MINUTES * 60_000;
@@ -436,7 +461,7 @@ reservationsApp.post("/reservations/:id/cancel", requireAuth, async (c) => {
     return c.json({ ok: true });
   }
   return c.json(
-    { ok: false, code: "invalid_state", message: "Reserva ja concluida ou cancelada." },
+    { ok: false, code: "invalid_state", message: "Reserva já concluída ou cancelada." },
     409,
   );
 });
@@ -452,96 +477,70 @@ reservationsApp.get("/reservations/incoming", requireMerchant, async (c) => {
   const user = c.get("user");
   await sweepExpiries();
   const rows = await getDb()`SELECT r.id, r.offer_id, r.state, r.created_at, r.pending_expires_at, r.pickup_until,
-              o.title AS offer_title, u.name AS consumer_name, u.misses_since_unblock AS consumer_misses
+              o.title AS offer_title, u.name AS consumer_name, u.email AS consumer_email, u.misses_since_unblock AS consumer_misses
        FROM reservations r
        JOIN offers o ON o.id = r.offer_id
        JOIN establishments e ON e.id = o.establishment_id
        JOIN users u ON u.id = r.consumer_id
-       WHERE e.owner_id = ${user.id} AND r.state IN ('pendente','confirmada')
+       WHERE e.owner_id = ${user.id} AND r.state = 'confirmada'
        ORDER BY r.id DESC`;
   return c.json({ ok: true, reservations: rows });
 });
 
 reservationsApp.post("/reservations/:id/accept", requireMerchant, async (c) => {
-  const user = c.get("user");
-  await sweepExpiries();
-  const id = Number(c.req.param("id"));
-  const acceptRows = Number.isInteger(id)
-    ? await getDb()`SELECT id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at FROM reservations WHERE id = ${id}`
-    : [];
-  const row = (acceptRows[0] as ReservationRow | undefined) ?? null;
-  if (!row || row.state !== "pendente" || !(await ownOfferId(user.id, row.offer_id))) {
-    return c.json(
-      { ok: false, code: "not_found", message: "Pedido pendente nao encontrado ou ja expirado." },
-      404,
-    );
-  }
-  const code = newPickupCode();
-  const db = getDb();
-  const accepted = await db`UPDATE reservations SET state = 'confirmada', pickup_code_hash = ${code.hash} WHERE id = ${id} AND state = 'pendente' RETURNING id`;
-  if (accepted.length === 0) {
-    return c.json(
-      { ok: false, code: "not_found", message: "Pedido pendente nao encontrado ou ja expirado." },
-      404,
-    );
-  }
-  const offerRows = await db`SELECT title FROM offers WHERE id = ${row.offer_id}`;
-  const offer = offerRows[0] as { title: string };
-  await notify(
-    row.consumer_id,
-    "reservation_confirmed",
-    row.offer_id,
-    id,
-    `Pedido aceito na oferta "${offer.title}". Retire ate ${row.pickup_until} com seu codigo.`,
-  );
-  await audit("reservation", id, "accepted", user.id);
-  const updatedRows = await db`SELECT id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at FROM reservations WHERE id = ${id}`;
-  const updated = updatedRows[0] as ReservationRow;
-  return c.json({ ok: true, reservation: await serializeConsumer(updated), pickup_code: code.code });
+  return c.json({ ok: false, code: "gone", message: "Fluxo de pendentes removido. Novas reservas ja nascem confirmadas." }, 410);
 });
 
-// RF-22: recusa com motivo, aviso e unidade de volta se a oferta ainda vigente.
+
 reservationsApp.post("/reservations/:id/refuse", requireMerchant, async (c) => {
+  return c.json({ ok: false, code: "gone", message: "Fluxo de pendentes removido. Novas reservas ja nascem confirmadas." }, 410);
+});
+
+
+
+reservationsApp.get("/reservations/incoming/:id", requireMerchant, async (c) => {
   const user = c.get("user");
   await sweepExpiries();
   const id = Number(c.req.param("id"));
-  const refuseRows = Number.isInteger(id)
-    ? await getDb()`SELECT id, consumer_id, offer_id, state, idempotency_key, pickup_code_hash, price_cents, address_snapshot, gps_lat, gps_lng, pickup_until, pending_expires_at, cancel_reason, created_at FROM reservations WHERE id = ${id}`
-    : [];
-  const row = (refuseRows[0] as ReservationRow | undefined) ?? null;
-  if (!row || row.state !== "pendente" || !(await ownOfferId(user.id, row.offer_id))) {
-    return c.json(
-      { ok: false, code: "not_found", message: "Pedido pendente nao encontrado ou ja expirado." },
-      404,
-    );
-  }
+  if (!Number.isInteger(id)) return c.json({ ok: false, code: "not_found", message: "Solicitacao nao encontrada." }, 404);
+  const rows = await getDb()`SELECT r.id, r.offer_id, r.state, r.created_at, r.pickup_until, r.price_cents,
+              o.title AS offer_title, o.kind AS offer_kind, o.box_description,
+              u.name AS consumer_name, u.email AS consumer_email, u.misses_since_unblock AS consumer_misses
+       FROM reservations r
+       JOIN offers o ON o.id = r.offer_id
+       JOIN establishments e ON e.id = o.establishment_id
+       JOIN users u ON u.id = r.consumer_id
+       WHERE r.id = ${id} AND e.owner_id = ${user.id} AND r.state = 'confirmada'`;
+  const row = (rows[0] as Record<string, unknown> | undefined) ?? null;
+  if (!row) return c.json({ ok: false, code: "not_found", message: "Solicitacao nao encontrada." }, 404);
+  const items = await getDb()`SELECT oi.item_id, i.name, i.unit, oi.qty_per_unit FROM offer_items oi JOIN items i ON i.id = oi.item_id WHERE oi.offer_id = ${(row as { offer_id: number }).offer_id} ORDER BY i.name`;
+  const photos = await getDb()`SELECT id, item_id, path FROM offer_photos WHERE offer_id = ${(row as { offer_id: number }).offer_id} ORDER BY position, id`;
+  return c.json({ ok: true, solicitation: { ...row, items, photos } });
+});
+
+// Previa da retirada: mostra o pedido sem confirmar.
+reservationsApp.post("/reservations/pickup/preview", requireMerchant, async (c) => {
+  await sweepExpiries();
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-  const reason = body && typeof body.reason === "string" ? body.reason.trim() : "";
-  if (!reason) {
-    return c.json({ ok: false, code: "reason_required", message: "Informe o motivo da recusa." }, 400);
-  }
-  if (!withinLen(reason, 200)) {
-    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter ate 200 caracteres." }, 400);
-  }
+  const raw = body && typeof body.code === "string" ? body.code : "";
+  const code = raw.trim().toUpperCase();
+  if (!code) return c.json({ ok: false, code: "code_required", message: "Informe o codigo de retirada." }, 400);
+  const hash = createHash("sha256").update(code).digest("hex");
   const db = getDb();
-  const refused = await db`UPDATE reservations SET state = 'recusada', cancel_reason = ${reason} WHERE id = ${id} AND state = 'pendente' RETURNING id`;
-  if (refused.length === 0) {
-    return c.json(
-      { ok: false, code: "not_found", message: "Pedido pendente nao encontrado ou ja expirado." },
-      404,
-    );
+  const rows = await db`SELECT id, consumer_id, offer_id, state, price_cents, address_snapshot, pickup_until, created_at FROM reservations WHERE pickup_code_hash = ${hash}`;
+  const row = (rows[0] as ReservationRow | undefined) ?? null;
+  if (!row || row.state !== "confirmada" || !(await ownOfferId(c.get("user").id, row.offer_id))) {
+    return c.json({ ok: false, code: "invalid_code", message: "Codigo invalido ou ja usado." }, 404);
   }
-  const offerRows = await db`SELECT title FROM offers WHERE id = ${row.offer_id}`;
-  const offer = offerRows[0] as { title: string };
-  await notify(
-    row.consumer_id,
-    "request_refused",
-    row.offer_id,
-    id,
-    `Pedido recusado na oferta "${offer.title}": ${reason}. Voce ja pode fazer outro pedido.`,
-  );
-  await audit("reservation", id, "refused", user.id);
-  return c.json({ ok: true });
+  if (new Date(row.pickup_until).getTime() + 15 * 60_000 < Date.now()) {
+    return c.json({ ok: false, code: "invalid_code", message: "Codigo invalido ou ja usado." }, 404);
+  }
+  const offerRows = await db`SELECT o.title, o.kind, o.box_description, o.price_cents, o.is_free, o.pickup_from, o.pickup_until FROM offers o WHERE o.id = ${row.offer_id}`;
+  const offer = offerRows[0] as { title: string; kind: string; box_description: string; price_cents: number; is_free: boolean; pickup_from: string; pickup_until: string };
+  const items = await db`SELECT oi.item_id, i.name, i.unit, oi.qty_per_unit FROM offer_items oi JOIN items i ON i.id = oi.item_id WHERE oi.offer_id = ${row.offer_id} ORDER BY i.name`;
+  const consumerRows = await db`SELECT name FROM users WHERE id = ${row.consumer_id}`;
+  const consumer = consumerRows[0] as { name: string };
+  return c.json({ ok: true, preview: { reservation_id: row.id, offer_title: offer.title, offer_kind: offer.kind, box_description: offer.box_description, items, price_cents: row.price_cents, is_free: offer.is_free, consumer_name: consumer.name, address_snapshot: row.address_snapshot, pickup_from: offer.pickup_from, pickup_until: offer.pickup_until } });
 });
 
 // RF-22: comerciante cancela confirmada com motivo e aviso, sem falta.
@@ -554,7 +553,7 @@ reservationsApp.post("/reservations/:id/merchant-cancel", requireMerchant, async
     : [];
   const row = (mcRows[0] as ReservationRow | undefined) ?? null;
   if (!row || row.state !== "confirmada" || !(await ownOfferId(user.id, row.offer_id))) {
-    return c.json({ ok: false, code: "not_found", message: "Reserva confirmada nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Reserva confirmada não encontrada." }, 404);
   }
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const reason = body && typeof body.reason === "string" ? body.reason.trim() : "";
@@ -562,7 +561,7 @@ reservationsApp.post("/reservations/:id/merchant-cancel", requireMerchant, async
     return c.json({ ok: false, code: "reason_required", message: "Informe o motivo do cancelamento." }, 400);
   }
   if (!withinLen(reason, 200)) {
-    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter ate 200 caracteres." }, 400);
+    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter até 200 caracteres." }, 400);
   }
   const db = getDb();
   await db`UPDATE reservations SET state = 'cancelada', cancel_reason = ${`Cancelada pelo comerciante: ${reason}`} WHERE id = ${id}`;
@@ -577,6 +576,28 @@ reservationsApp.post("/reservations/:id/merchant-cancel", requireMerchant, async
   );
   await audit("reservation", id, "cancelled_merchant", user.id);
   return c.json({ ok: true });
+});
+
+reservationsApp.get("/reservations/:id/photo", requireAuth, async (c) => {
+  const id = Number(c.req.param("id"));
+  const rows = Number.isSafeInteger(id) ? await getDb()`SELECT snapshot FROM reservations
+    WHERE id = ${id} AND consumer_id = ${c.get("user").id}` : [];
+  const snapshot = rows[0]?.snapshot as ReservationSnapshot | null;
+  const file = snapshot?.photo_path ? Bun.file(snapshot.photo_path) : null;
+  if (!file || !(await file.exists())) {
+    return c.json({ ok: false, code: "not_found", message: "Foto não encontrada." }, 404);
+  }
+  return new Response(file, { headers: { "Cache-Control": "private, no-store" } });
+});
+
+reservationsApp.get("/reservations/:id", requireAuth, async (c) => {
+  await sweepExpiries();
+  const id = Number(c.req.param("id"));
+  const rows = Number.isSafeInteger(id) ? await getDb()`SELECT * FROM reservations
+    WHERE id = ${id} AND consumer_id = ${c.get("user").id}` : [];
+  if (!rows[0]) return c.json({ ok: false, code: "not_found", message: "Reserva não encontrada." }, 404);
+  c.header("Cache-Control", "private, no-store");
+  return c.json({ ok: true, reservation: await serializeConsumer(rows[0] as ReservationRow) });
 });
 
 export type { SessionUser };

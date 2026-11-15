@@ -59,6 +59,7 @@ function offerBody(itemId: number, extra?: Record<string, unknown>) {
     price_cents: 1000,
     ...DATES,
     storage_notes: "Manter refrigerado.",
+    box_description: "Caixa com frutas variadas.",
     ...extra,
   };
 }

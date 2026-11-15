@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
-import type { IncomingReservation } from "../shared/types";
 import { ApiError, ReservationsApi } from "./api";
 
 export function IncomingView() {
-  const [items, setItems] = useState<IncomingReservation[]>([]);
+  const [items, setItems] = useState<Awaited<ReturnType<typeof ReservationsApi.incoming>>["reservations"]>([]);
+  const [detail, setDetail] = useState<(Awaited<ReturnType<typeof ReservationsApi.incomingDetail>>["solicitation"]) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [refuseId, setRefuseId] = useState<number | null>(null);
   const [cancelId, setCancelId] = useState<number | null>(null);
 
   async function refresh() {
@@ -17,9 +16,22 @@ export function IncomingView() {
 
   useEffect(() => {
     refresh().catch((err) =>
-      setError(err instanceof ApiError ? err.message : "Falha ao carregar solicitacoes."),
+      setError(err instanceof ApiError ? err.message : "Falha ao carregar solicitações."),
     );
   }, []);
+
+  async function openDetail(id: number) {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await ReservationsApi.incomingDetail(id);
+      setDetail(res.solicitation);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Falha ao abrir a solicitação.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function run(action: () => Promise<unknown>, okMsg: string) {
     setError(null);
@@ -29,133 +41,93 @@ export function IncomingView() {
       await action();
       await refresh();
       setNotice(okMsg);
-      setRefuseId(null);
       setCancelId(null);
+      setDetail(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha na requisicao. Tente de novo.");
+      setError(err instanceof ApiError ? err.message : "Falha na requisição. Tente de novo.");
     } finally {
       setBusy(false);
     }
   }
 
-  const pendents = items.filter((i) => i.state === "pendente");
-  const confirmed = items.filter((i) => i.state === "confirmada");
+  if (detail) {
+    return (
+      <section aria-labelledby="sol-detalhe-titulo" className="card">
+        <h1 id="sol-detalhe-titulo">Solicitação #{detail.id}</h1>
+        <dl className="facts">
+          <div><dt>Oferta</dt><dd>{detail.offer_title}</dd></div>
+          <div><dt>Tipo</dt><dd>{detail.offer_kind === "caixa" ? "Caixa surpresa" : "Item"}</dd></div>
+          <div><dt>Valor</dt><dd>{detail.price_cents === 0 ? "Grátis" : `R$ ${(detail.price_cents / 100).toFixed(2).replace(".", ",")}`}</dd></div>
+          <div><dt>Retirada até</dt><dd>{new Date(detail.pickup_until).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</dd></div>
+          <div><dt>Nome</dt><dd>{detail.consumer_name}</dd></div>
+          <div><dt>E-mail</dt><dd>{detail.consumer_email}</dd></div>
+          <div><dt>Faltas</dt><dd>{detail.consumer_misses}</dd></div>
+        </dl>
+        {detail.box_description && <p className="note">{detail.box_description}</p>}
+        {detail.items?.length > 0 && (
+          <ul className="list">
+            {detail.items.map((it) => (
+              <li key={it.item_id} className="list-row"><span>{it.name} ({it.qty_per_unit} {it.unit})</span></li>
+            ))}
+          </ul>
+        )}
+        {error && <p className="error" role="alert">{error}</p>}
+        {notice && <p className="note" aria-live="polite">{notice}</p>}
+        <div className="row actions">
+          <button type="button" className="btn small danger" disabled={busy} onClick={() => setCancelId(detail.id)}>Cancelar reserva</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => setDetail(null)}>Voltar para solicitações</button>
+        </div>
+        {cancelId === detail.id && (
+          <form className="stack" onSubmit={(e) => {
+            e.preventDefault();
+            const reason = String(new FormData(e.currentTarget).get("reason") ?? "").trim();
+            if (!reason) { setError("Informe o motivo do cancelamento."); return; }
+            run(() => ReservationsApi.merchantCancel(detail.id, reason), "Reserva cancelada e consumidor avisado.");
+          }}>
+            <div className="field">
+              <label htmlFor="mcancel-reason">Motivo do cancelamento</label>
+              <input id="mcancel-reason" name="reason" required maxLength={200} />
+            </div>
+            <button type="submit" className="btn small danger" disabled={busy}>Confirmar cancelamento</button>
+          </form>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby="sol-titulo" className="card">
-      <h1 id="sol-titulo">Solicitacoes</h1>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p className="note" aria-live="polite">
-          {notice}
-        </p>
-      )}
-      <h2 className="sub">Pendentes de decisao ({pendents.length})</h2>
-      {pendents.length === 0 && <p className="muted">Nenhum pedido pendente.</p>}
+      <h1 id="sol-titulo">Solicitações</h1>
+      {error && <p className="error" role="alert">{error}</p>}
+      {notice && <p className="note" aria-live="polite">{notice}</p>}
+      {items.length === 0 && <p className="muted">Nenhuma solicitação confirmada agora.</p>}
       <ul className="list">
-        {pendents.map((r) => (
+        {items.map((r) => (
           <li key={r.id} className="offer">
             <div className="offer-head">
               <strong>{r.offer_title}</strong>
-              <span className="badge" data-state="pendente">
-                {r.consumer_misses > 0 ? `${r.consumer_misses} falta(s)` : "sem faltas"}
-              </span>
+              <span className="badge" data-state="confirmada">Confirmada</span>
             </div>
-            <p className="muted">
-              {r.consumer_name} pediu em {new Date(r.created_at).toLocaleString("pt-BR")}.
-              Decisao ate {new Date(r.pending_expires_at as string).toLocaleString("pt-BR")}.
-            </p>
+            <p className="muted">{r.consumer_name} pediu em {new Date(r.created_at).toLocaleString("pt-BR")}.</p>
             <div className="row">
-              <button
-                type="button"
-                className="btn small primary"
-                disabled={busy}
-                onClick={() => run(() => ReservationsApi.accept(r.id), "Pedido aceito. Codigo gerado ao consumidor.")}
-              >
-                Aceitar
-              </button>
-              <button
-                type="button"
-                className="btn small danger"
-                disabled={busy}
-                onClick={() => { setRefuseId(refuseId === r.id ? null : r.id); setCancelId(null); }}
-              >
-                Recusar
-              </button>
+              <button type="button" className="btn small" disabled={busy} aria-label={`Ver detalhes da solicitação ${r.id}`} onClick={() => openDetail(r.id)}>👁️ Ver detalhes</button>
+              <button type="button" className="btn small danger" disabled={busy} onClick={() => { setCancelId(r.id); }}>Cancelar</button>
             </div>
-            {refuseId === r.id && (
-              <form
-                className="stack"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const reason = String(new FormData(e.currentTarget).get("reason") ?? "").trim();
-                  if (!reason) {
-                    setError("Informe o motivo da recusa.");
-                    return;
-                  }
-                  run(() => ReservationsApi.refuse(r.id, reason), "Pedido recusado e consumidor avisado.");
-                }}
-              >
-                <div className="field">
-                  <label htmlFor={`recusa-${r.id}`}>Motivo da recusa</label>
-                  <input id={`recusa-${r.id}`} name="reason" required maxLength={200} />
-                </div>
-                <button type="submit" className="btn small danger" disabled={busy}>
-                  Confirmar recusa
-                </button>
-              </form>
-            )}
           </li>
         ))}
       </ul>
-      <h2 className="sub">Confirmadas ({confirmed.length})</h2>
-      {confirmed.length === 0 && <p className="muted">Nenhuma reserva confirmada.</p>}
-      <ul className="list">
-        {confirmed.map((r) => (
-          <li key={r.id} className="list-row">
-            <span>
-              {r.offer_title} - {r.consumer_name}
-            </span>
-            <span className="row">
-              <button
-                type="button"
-                className="btn small danger"
-                disabled={busy}
-                onClick={() => { setCancelId(cancelId === r.id ? null : r.id); setRefuseId(null); }}
-              >
-                Cancelar
-              </button>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {cancelId !== null && (
-        <form
-          className="stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const reason = String(new FormData(e.currentTarget).get("reason") ?? "").trim();
-            if (!reason) {
-              setError("Informe o motivo do cancelamento.");
-              return;
-            }
-            run(
-              () => ReservationsApi.merchantCancel(cancelId, reason),
-              "Reserva cancelada e consumidor avisado, sem falta.",
-            );
-          }}
-        >
+      {cancelId !== null && !detail && (
+        <form className="stack" onSubmit={(e) => {
+          e.preventDefault();
+          const reason = String(new FormData(e.currentTarget).get("reason") ?? "").trim();
+          if (!reason) { setError("Informe o motivo do cancelamento."); return; }
+          run(() => ReservationsApi.merchantCancel(cancelId, reason), "Reserva cancelada e consumidor avisado.");
+        }}>
           <div className="field">
             <label htmlFor="mcancel-reason">Motivo do cancelamento</label>
             <input id="mcancel-reason" name="reason" required maxLength={200} />
           </div>
-          <button type="submit" className="btn small danger" disabled={busy}>
-            Confirmar cancelamento
-          </button>
+          <button type="submit" className="btn small danger" disabled={busy}>Confirmar cancelamento</button>
         </form>
       )}
     </section>

@@ -170,19 +170,16 @@ describe("reservas", () => {
     expect((concRows[0] as { n: number }).n).toBe(1);
   });
 
-  test("com uma falta fica pendente; aceite confirma com codigo; recusa libera", async () => {
+  test("com uma falta confirma direto sem pendente; aceite/recusa removidos", async () => {
     const { cookie, itemId } = await signupMerchant();
     const offerId = await publishedOffer(cookie, itemId);
     const consumer = await signupConsumer(1);
 
     const req = await reserve(consumer.cookie, offerId);
     expect(req.status).toBe(201);
-    const pending = (await req.json()).reservation;
-    expect(pending.state).toBe("pendente");
-    expect(pending.pickup_code).toBeUndefined();
-    const limit = new Date(pending.pending_expires_at).getTime() - Date.now();
-    expect(limit).toBeGreaterThan(0);
-    expect(limit).toBeLessThanOrEqual(30 * 60_000);
+    const confirmed = (await req.json()).reservation;
+    expect(confirmed.state).toBe("confirmada");
+    expect(confirmed.pickup_code).toHaveLength(6);
 
     const incoming = await app.request("/api/reservations/incoming", {
       headers: { Cookie: cookie },
@@ -191,51 +188,35 @@ describe("reservas", () => {
     expect(list).toHaveLength(1);
     expect(list[0].consumer_misses).toBe(1);
 
-    // Recusa sem motivo falha; com motivo libera a unidade.
-    const noReason = await app.request(`/api/reservations/${pending.id}/refuse`, {
+    const goneAccept = await app.request(`/api/reservations/${confirmed.id}/accept`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookie },
-      body: JSON.stringify({}),
+      headers: { Cookie: cookie },
     });
-    expect(noReason.status).toBe(400);
-    const refused = await app.request(`/api/reservations/${pending.id}/refuse`, {
+    expect(goneAccept.status).toBe(410);
+    const goneRefuse = await app.request(`/api/reservations/${confirmed.id}/refuse`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookie },
       body: JSON.stringify({ reason: "Sem estoque hoje." }),
     });
-    expect(refused.status).toBe(200);
-
-    const notices = await app.request("/api/notices", { headers: { Cookie: consumer.cookie } });
-    const kinds = ((await notices.json()).notices as { kind: string }[]).map((n) => n.kind);
-    expect(kinds).toContain("request_refused");
-
-    // Unidade liberada: novo pedido volta a ficar pendente.
-    const retry = await reserve(consumer.cookie, offerId);
-    expect(retry.status).toBe(201);
-    const pending2 = (await retry.json()).reservation;
-    const accepted = await app.request(`/api/reservations/${pending2.id}/accept`, {
-      method: "POST",
-      headers: { Cookie: cookie },
-    });
-    expect(accepted.status).toBe(200);
-    const acceptedBody = await accepted.json();
-    expect(acceptedBody.reservation.state).toBe("confirmada");
-    expect(acceptedBody.pickup_code).toHaveLength(6);
+    expect(goneRefuse.status).toBe(410);
 
     const active = await app.request("/api/reservations/active", {
       headers: { Cookie: consumer.cookie },
     });
-    expect((await active.json()).reservation.state).toBe("confirmada");
+    const activeBody = await active.json();
+    expect(activeBody.reservation.state).toBe("confirmada");
+    expect(activeBody.reservation.pickup_code).toHaveLength(6);
   });
 
-  test("pendente expirado nao conta falta e libera novo pedido; decisao tardia nao altera", async () => {
+  test("pendente legado expirado nao conta falta e libera novo pedido; decisao tardia removida", async () => {
     const { cookie, itemId } = await signupMerchant();
     const offerId = await publishedOffer(cookie, itemId);
     const consumer = await signupConsumer(1);
     const req = await reserve(consumer.cookie, offerId);
     const pending = (await req.json()).reservation;
 
-    await getDb()`UPDATE reservations SET pending_expires_at = ${new Date(Date.now() - 60_000).toISOString()} WHERE id = ${pending.id}`;
+    // Legado: simula pendente expirado para garantir expiracao sem falta.
+    await getDb()`UPDATE reservations SET state = 'pendente', pending_expires_at = ${new Date(Date.now() - 60_000).toISOString()} WHERE id = ${pending.id}`;
 
     const active = await app.request("/api/reservations/active", {
       headers: { Cookie: consumer.cookie },
@@ -246,7 +227,7 @@ describe("reservas", () => {
       method: "POST",
       headers: { Cookie: cookie },
     });
-    expect(late.status).toBe(404);
+    expect(late.status).toBe(410);
 
     const history = await app.request("/api/reservations/history", {
       headers: { Cookie: consumer.cookie },
@@ -262,18 +243,14 @@ describe("reservas", () => {
     expect(retry.status).toBe(201);
   });
 
-  test("cancelamento: pendente cancela; confirmada no prazo cancela e fora do prazo falha", async () => {
+  test("cancelamento: confirmada no prazo cancela e fora do prazo falha", async () => {
     const { cookie, itemId } = await signupMerchant();
     const offerId = await publishedOffer(cookie, itemId);
     const consumer = await signupConsumer(1);
 
     const req = await reserve(consumer.cookie, offerId);
     const pending = (await req.json()).reservation;
-    const cancelPending = await app.request(`/api/reservations/${pending.id}/cancel`, {
-      method: "POST",
-      headers: { Cookie: consumer.cookie },
-    });
-    expect(cancelPending.status).toBe(200);
+    expect(pending.state).toBe("confirmada");
 
     const clean = await signupConsumer();
     const req2 = await reserve(clean.cookie, offerId);

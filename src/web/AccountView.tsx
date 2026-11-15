@@ -2,6 +2,12 @@ import { useState } from "react";
 import type { UserDTO } from "../shared/types";
 import { ApiError, AuthApi } from "./api";
 
+function maskCpf(digits: string): string {
+  const d = digits.replace(/\D/g, "").slice(0, 11);
+  if (d.length !== 11) return digits;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
 export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserDTO) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -33,7 +39,7 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
       onUser(res.user);
       setSaved("Dados atualizados.");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha na requisicao. Tente de novo.");
+      setError(err instanceof ApiError ? err.message : "Falha na requisição. Tente de novo.");
     } finally {
       setBusy(false);
     }
@@ -46,6 +52,14 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
       <h1 id="conta-titulo">Minha conta</h1>
       <dl className="facts">
         <div>
+          <dt>Nome</dt>
+          <dd>{user.name}</dd>
+        </div>
+        <div>
+          <dt>CPF</dt>
+          <dd>{user.cpf ? maskCpf(user.cpf) : "Não registrado"}</dd>
+        </div>
+        <div>
           <dt>E-mail</dt>
           <dd>{user.email}</dd>
         </div>
@@ -55,13 +69,13 @@ export function AccountView({ user, onUser }: { user: UserDTO; onUser: (u: UserD
         </div>
         {user.role === "consumer" && (
           <div>
-            <dt>Faltas desde o ultimo desbloqueio</dt>
+            <dt>Faltas desde o último desbloqueio</dt>
             <dd>{user.misses_since_unblock}</dd>
           </div>
         )}
         {blocked && (
           <div>
-            <dt>Bloqueio ate</dt>
+            <dt>Bloqueio até</dt>
             <dd>{new Date(user.blocked_until as string).toLocaleString("pt-BR")}</dd>
           </div>
         )}

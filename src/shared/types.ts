@@ -34,6 +34,7 @@ export interface ApiError {
 export interface UserDTO {
   id: number;
   name: string;
+  cpf: string;
   email: string;
   role: Role;
   search_radius_km: number;
@@ -69,7 +70,33 @@ export interface OfferItemDTO {
   qty_per_unit: number;
 }
 
+export interface ReservationSnapshot {
+  title: string;
+  kind: OfferKind;
+  photo_path: string;
+  photos: string[];
+  box_description: string;
+  establishment_name: string;
+  merchant_name: string;
+  reference: string;
+  pickup_from: string;
+  pickup_until: string;
+  gps_lat: number | null;
+  gps_lng: number | null;
+  storage_notes: string;
+  items: OfferItemDTO[];
+}
+
 export interface ReservationDTO {
+  snapshot_available: boolean;
+  establishment_name: string | null;
+  merchant_name: string | null;
+  reference: string | null;
+  kind: OfferKind | null;
+  items: OfferItemDTO[] | null;
+  storage_notes: string | null;
+  cancel_reason: string;
+  quantity: number;
   id: number;
   offer_id: number;
   offer_title: string;
@@ -96,6 +123,7 @@ export interface IncomingReservation {
   pickup_until: string;
   offer_title: string;
   consumer_name: string;
+  consumer_email: string;
   consumer_misses: number;
 }
 
@@ -109,12 +137,19 @@ export interface NoticeDTO {
   created_at: string;
 }
 
+export interface OfferPhotoDTO {
+  id: number;
+  item_id: number | null;
+  path: string;
+}
 export interface OfferDTO {
   id: number;
   establishment_id: number;
   title: string;
   kind: OfferKind;
   photo_path: string;
+  photos: OfferPhotoDTO[];
+  box_description: string;
   total_units: number;
   price_cents: number;
   is_free: number;

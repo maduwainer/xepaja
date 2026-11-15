@@ -20,6 +20,7 @@ interface OfferRow {
   title: string;
   kind: string;
   photo_path: string;
+  box_description: string;
   total_units: number;
   price_cents: number;
   is_free: boolean;
@@ -45,7 +46,7 @@ async function getEstablishment(ownerId: number) {
 }
 
 async function getOwnOffer(estabId: number, offerId: number): Promise<OfferRow | null> {
-  const rows = await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId} AND establishment_id = ${estabId}`;
+  const rows = await getDb()`SELECT id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId} AND establishment_id = ${estabId}`;
   return (rows[0] as OfferRow | undefined) ?? null;
 }
 
@@ -78,10 +79,12 @@ async function serializeOffer(offer: OfferRow) {
        FROM establishments e JOIN users u ON u.id = e.owner_id
        WHERE e.id = ${offer.establishment_id}`;
   const ctx = ctxRows[0] as { establishment_name: string; merchant_name: string };
+  const photoRows = await db`SELECT id, item_id, path FROM offer_photos WHERE offer_id = ${offer.id} ORDER BY position, id`;
   const remaining = await remainingUnits(offer.id, offer.total_units);
   return {
     ...offer,
     items,
+    photos: (photoRows as unknown as { id: number; item_id: number | null; path: string }[]).map((p) => ({ id: p.id, item_id: p.item_id, path: p.path })),
     remaining_units: remaining,
     effective_state: effectiveState(offer, remaining),
     establishment_name: ctx.establishment_name,
@@ -95,8 +98,13 @@ function str(value: unknown): string {
 
 function parseDate(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
+  const m = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (m && (m[1].length !== 4 || Number(m[1]) < 1000 || Number(m[1]) > 9999)) return null;
+  if (m && m[1].length !== 4) return null;
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return null;
+  const year = new Date(value).getFullYear();
+  if (year < 1000 || year > 9999) return null;
   return new Date(value).toISOString();
 }
 
@@ -118,14 +126,14 @@ async function parseOfferItems(
         ? Number(entry.qty_per_unit)
         : entry?.qty_per_unit;
     if (!Number.isInteger(itemId)) {
-      return { items: [], error: "Item invalido na composicao." };
+      return { items: [], error: "Item inválido na composição." };
     }
     if (typeof qty !== "number" || !Number.isFinite(qty) || qty <= 0 || qty > 1000000) {
       return { items: [], error: "Quantidade de cada item precisa ser positiva." };
     }
     const owned = (await db`SELECT id FROM items WHERE id = ${itemId} AND establishment_id = ${estabId}`)[0];
     if (!owned) {
-      return { items: [], error: "Item invalido na composicao." };
+      return { items: [], error: "Item inválido na composição." };
     }
     items.push({ item_id: itemId, qty_per_unit: qty });
   }
@@ -142,6 +150,7 @@ function parseCommon(body: Record<string, unknown>): {
   pickup_from: string | null;
   pickup_until: string | null;
   storage_notes: string;
+  box_description: string;
   error: string | null;
 } {
   const title = str(body.title);
@@ -151,33 +160,47 @@ function parseCommon(body: Record<string, unknown>): {
   const is_free = body.is_free === true || body.is_free === 1 || body.is_free === "true";
   const priceRaw = typeof body.price_cents === "string" ? Number(body.price_cents) : body.price_cents;
   const price_cents = typeof priceRaw === "number" && Number.isInteger(priceRaw) ? priceRaw : null;
-  if (!title) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Informe o titulo da oferta." };
-  if (!withinLen(title, 120)) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Titulo precisa ter ate 120 caracteres." };
-  if (!kind) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Tipo precisa ser item ou caixa surpresa." };
-  if (total_units === null || total_units <= 0 || total_units > 100000) {
-    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Quantidade ofertada precisa ser positiva." };
+  if (!title) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Informe o título da oferta." };
+  if (!withinLen(title, 120)) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Título precisa ter até 120 caracteres." };
+  if (!kind) return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Tipo precisa ser item ou caixa surpresa." };
+  if (kind === "caixa" && (total_units === null || total_units <= 0 || total_units > 100000)) {
+    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Quantidade ofertada precisa ser positiva." };
+  }
+  if (kind === "item" && total_units !== null && (total_units <= 0 || total_units > 100000)) {
+    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Quantidade ofertada precisa ser positiva." };
   }
   if (price_cents === null || price_cents < 0 || price_cents > 100000000) {
-    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Preco precisa ser zero ou maior." };
+    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Preço precisa ser zero ou maior." };
   }
   if (is_free && price_cents !== 0) {
-    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", error: "Oferta gratis precisa ter preco zero." };
+    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Oferta grátis precisa ter preço zero." };
+  }
+  const box_description = str(body.box_description);
+  if (kind === "caixa" && !box_description) {
+    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Descreva a caixa surpresa." };
+  }
+  if (!withinLen(box_description, 200)) {
+    return { title, kind, total_units, price_cents, is_free, available_from: null, pickup_from: null, pickup_until: null, storage_notes: "", box_description: "", error: "Descrição da caixa precisa ter até 200 caracteres." };
   }
   const available_from = parseDate(body.available_from);
   const pickup_from = parseDate(body.pickup_from);
   const pickup_until = parseDate(body.pickup_until);
   if (!available_from || !pickup_from || !pickup_until) {
-    return { title, kind, total_units, price_cents, is_free, available_from, pickup_from, pickup_until, storage_notes: "", error: "Informe datas validas de disponibilidade e retirada." };
+    return { title, kind, total_units, price_cents, is_free, available_from, pickup_from, pickup_until, storage_notes: "", box_description: "", error: "Informe datas válidas de disponibilidade e retirada." };
   }
   const storage_notes = str(body.storage_notes);
   if (!withinLen(storage_notes, 200)) {
-    return { title, kind, total_units, price_cents, is_free, available_from, pickup_from, pickup_until, storage_notes: "", error: "Orientacoes precisam ter ate 200 caracteres." };
+    return { title, kind, total_units, price_cents, is_free, available_from, pickup_from, pickup_until, storage_notes: "", box_description: "", error: "Orientações precisam ter até 200 caracteres." };
   }
   return {
-    title, kind, total_units, price_cents, is_free,
+    title, kind, total_units: total_units ?? 1, price_cents, is_free,
     available_from, pickup_from, pickup_until,
-    storage_notes, error: null,
+    storage_notes, box_description, error: null,
   };
+}
+
+async function sweepExpiredOffers(): Promise<void> {
+  await getDb()`UPDATE offers SET state = 'encerrada', updated_at = now() WHERE state = 'publicada' AND pickup_until < now()`;
 }
 
 // RF-05/06/11: criacao como rascunho. Exige GPS do estabelecimento (can_publish).
@@ -192,7 +215,7 @@ offersApp.post("/offers", requireMerchant, async (c) => {
   }
   if (estab.gps_lat === null || estab.gps_lng === null) {
     return c.json(
-      { ok: false, code: "gps_required", message: "Registre a posicao GPS no local de retirada antes de publicar ofertas." },
+      { ok: false, code: "gps_required", message: "Registre a posição GPS no local de retirada antes de publicar ofertas." },
       422,
     );
   }
@@ -212,14 +235,14 @@ offersApp.post("/offers", requireMerchant, async (c) => {
   const db = getDb();
   const offer = await db.begin(async (tx) => {
     const inserted = await tx`INSERT INTO offers
-         (establishment_id, title, kind, total_units, price_cents, is_free,
+         (establishment_id, title, kind, box_description, total_units, price_cents, is_free,
           address_snapshot, gps_lat, gps_lng,
           available_from, pickup_from, pickup_until, storage_notes, state)
-         VALUES (${estab.id}, ${common.title}, ${common.kind}, ${common.total_units},
+         VALUES (${estab.id}, ${common.title}, ${common.kind}, ${common.box_description}, ${common.total_units},
           ${common.price_cents}, ${common.is_free}, ${estab.address_text},
           ${estab.gps_lat}, ${estab.gps_lng}, ${common.available_from},
           ${common.pickup_from}, ${common.pickup_until}, ${common.storage_notes}, 'rascunho')
-         RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+         RETURNING id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
     const created = inserted[0] as OfferRow;
     for (const it of parsedItems.items) {
       await tx`INSERT INTO offer_items (offer_id, item_id, qty_per_unit) VALUES (${created.id}, ${it.item_id}, ${it.qty_per_unit})`;
@@ -233,7 +256,7 @@ offersApp.post("/offers", requireMerchant, async (c) => {
 offersApp.get("/offers/mine", requireMerchant, async (c) => {
   const estab = await getEstablishment(c.get("user").id);
   if (!estab) return c.json({ ok: true, offers: [] });
-  const offers = await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE establishment_id = ${estab.id} ORDER BY id DESC` as OfferRow[];
+  const offers = await getDb()`SELECT id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE establishment_id = ${estab.id} ORDER BY id DESC` as OfferRow[];
   return c.json({ ok: true, offers: await Promise.all(offers.map(serializeOffer)) });
 });
 
@@ -263,7 +286,7 @@ offersApp.get("/offers/nearby", requireAuth, async (c) => {
     lat < -90 || lat > 90 || lng < -180 || lng > 180
   ) {
     return c.json(
-      { ok: false, code: "location_required", message: "Informe sua localizacao atual para buscar por proximidade." },
+      { ok: false, code: "location_required", message: "Informe sua localização atual para buscar por proximidade." },
       400,
     );
   }
@@ -320,17 +343,17 @@ offersApp.get("/offers/:id", requireAuth, async (c) => {
   const user = c.get("user");
   const offerId = Number(c.req.param("id"));
   if (!Number.isInteger(offerId)) {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
-  const found = await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId}`;
+  const found = await getDb()`SELECT id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId}`;
   const offer = (found[0] as OfferRow | undefined) ?? null;
   if (!offer) {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
   const ownerRows = await getDb()`SELECT owner_id FROM establishments WHERE id = ${offer.establishment_id}`;
   const owner = (ownerRows[0] as { owner_id: number } | undefined) ?? null;
   if ((!owner || owner.owner_id !== user.id) && offer.state !== "publicada") {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
   return c.json({ ok: true, offer: await serializeOffer(offer) });
 });
@@ -345,13 +368,17 @@ offersApp.post("/offers/:id/publish", requireMerchant, async (c) => {
   const offerId = Number(c.req.param("id"));
   const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
   if (offer.state !== "rascunho") {
-    return c.json({ ok: false, code: "invalid_state", message: "So e possivel publicar oferta em rascunho." }, 409);
+    return c.json({ ok: false, code: "invalid_state", message: "Só é possível publicar oferta em rascunho." }, 409);
   }
-  if (!offer.photo_path) {
+  const photoCount = ((await getDb()`SELECT COUNT(*)::int AS n FROM offer_photos WHERE offer_id = ${offer.id}`)[0] as { n: number }).n;
+  if (!offer.photo_path && photoCount === 0) {
     return c.json({ ok: false, code: "photo_required", message: "Inclua uma foto antes de publicar." }, 422);
+  }
+  if (offer.kind === "caixa" && !offer.box_description) {
+    return c.json({ ok: false, code: "description_required", message: "Descreva a caixa surpresa." }, 422);
   }
   const items = await getDb()`SELECT qty_per_unit FROM offer_items WHERE offer_id = ${offer.id}` as { qty_per_unit: number }[];
   if (items.length === 0 || items.some((i) => !(i.qty_per_unit > 0))) {
@@ -360,13 +387,13 @@ offersApp.post("/offers/:id/publish", requireMerchant, async (c) => {
   // RF-06: a janela de retirada nao pode terminar antes do inicio da oferta.
   if (offer.pickup_until < offer.available_from) {
     return c.json(
-      { ok: false, code: "invalid_dates", message: "A retirada nao pode terminar antes do inicio da oferta." },
+      { ok: false, code: "invalid_dates", message: "A retirada não pode terminar antes do início da oferta." },
       422,
     );
   }
   if (offer.pickup_until < offer.pickup_from) {
     return c.json(
-      { ok: false, code: "invalid_dates", message: "O fim da retirada precisa ser depois do inicio." },
+      { ok: false, code: "invalid_dates", message: "O fim da retirada precisa ser depois do início." },
       422,
     );
   }
@@ -375,7 +402,7 @@ offersApp.post("/offers/:id/publish", requireMerchant, async (c) => {
   const updatedRows = await db`UPDATE offers SET state = 'publicada',
        address_snapshot = ${estab.address_text}, gps_lat = ${estab.gps_lat}, gps_lng = ${estab.gps_lng},
        updated_at = now()
-       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
   const updated = updatedRows[0] as OfferRow;
   await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'published', ${user.id})`;
   return c.json({ ok: true, offer: await serializeOffer(updated) });
@@ -397,11 +424,11 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
   const offerId = Number(c.req.param("id"));
   const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
   if (offer.state !== "rascunho" && offer.state !== "publicada") {
     return c.json(
-      { ok: false, code: "invalid_state", message: "Oferta encerrada, cancelada ou expirada nao pode ser editada." },
+      { ok: false, code: "invalid_state", message: "Oferta encerrada, cancelada ou expirada não pode ser editada." },
       409,
     );
   }
@@ -417,20 +444,24 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
         {
           ok: false,
           code: "material_change_blocked",
-          message: "Com reservas ativas, cancele a oferta e avise os afetados para mudar item, quantidade, valor, local ou horario.",
+          message: "Com reservas ativas, cancele a oferta e avise os afetados para mudar item, quantidade, valor, local ou horário.",
         },
         409,
       );
     }
-    if (body.storage_notes === undefined) {
+    if (body.storage_notes === undefined && body.box_description === undefined) {
       return c.json({ ok: false, code: "invalid_body", message: "Nada para atualizar." }, 400);
     }
-    if (!withinLen(str(body.storage_notes), 200)) {
-      return c.json({ ok: false, code: "invalid_notes", message: "Orientacoes precisam ter ate 200 caracteres." }, 400);
+    if (body.storage_notes !== undefined && !withinLen(str(body.storage_notes), 200)) {
+      return c.json({ ok: false, code: "invalid_notes", message: "Orientações precisam ter até 200 caracteres." }, 400);
     }
-    const noteRows = await getDb()`UPDATE offers SET storage_notes = ${str(body.storage_notes)},
+    if (body.box_description !== undefined && !withinLen(str(body.box_description), 200)) {
+      return c.json({ ok: false, code: "invalid_notes", message: "Descrição da caixa precisa ter até 200 caracteres." }, 400);
+    }
+    const noteRows = await getDb()`UPDATE offers SET storage_notes = COALESCE(${body.storage_notes !== undefined ? str(body.storage_notes) : null}, storage_notes),
+         box_description = COALESCE(${body.box_description !== undefined ? str(body.box_description) : null}, box_description),
          updated_at = now()
-         WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+         WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
     return c.json({ ok: true, offer: await serializeOffer(noteRows[0] as OfferRow) });
   }
 
@@ -440,8 +471,8 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
 
   if (body.title !== undefined) {
     const title = str(body.title);
-    if (!title) return c.json({ ok: false, code: "invalid_title", message: "Informe o titulo da oferta." }, 400);
-    if (!withinLen(title, 120)) return c.json({ ok: false, code: "invalid_title", message: "Titulo precisa ter ate 120 caracteres." }, 400);
+    if (!title) return c.json({ ok: false, code: "invalid_title", message: "Informe o título da oferta." }, 400);
+    if (!withinLen(title, 120)) return c.json({ ok: false, code: "invalid_title", message: "Título precisa ter até 120 caracteres." }, 400);
     updates.push("title = ?");
     params.push(title);
   }
@@ -470,10 +501,10 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     const isFreeRaw = body.is_free === undefined ? offer.is_free : body.is_free;
     const isFree = isFreeRaw === true || isFreeRaw === 1 || isFreeRaw === "true";
     if (typeof price !== "number" || !Number.isInteger(price) || price < 0 || price > 100000000) {
-      return c.json({ ok: false, code: "invalid_price", message: "Preco precisa ser zero ou maior." }, 400);
+      return c.json({ ok: false, code: "invalid_price", message: "Preço precisa ser zero ou maior." }, 400);
     }
     if (isFree && price !== 0) {
-      return c.json({ ok: false, code: "invalid_price", message: "Oferta gratis precisa ter preco zero." }, 400);
+      return c.json({ ok: false, code: "invalid_price", message: "Oferta grátis precisa ter preço zero." }, 400);
     }
     updates.push("price_cents = ?", "is_free = ?");
     params.push(price, isFree);
@@ -482,7 +513,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
     if (body[field] !== undefined) {
       const parsed = parseDate(body[field]);
       if (!parsed) {
-        return c.json({ ok: false, code: "invalid_dates", message: "Informe datas validas de disponibilidade e retirada." }, 400);
+        return c.json({ ok: false, code: "invalid_dates", message: "Informe datas válidas de disponibilidade e retirada." }, 400);
       }
       updates.push(`${field} = ?`);
       params.push(parsed);
@@ -490,7 +521,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
   }
   if (body.storage_notes !== undefined) {
     if (!withinLen(str(body.storage_notes), 200)) {
-      return c.json({ ok: false, code: "invalid_notes", message: "Orientacoes precisam ter ate 200 caracteres." }, 400);
+      return c.json({ ok: false, code: "invalid_notes", message: "Orientações precisam ter até 200 caracteres." }, 400);
     }
     updates.push("storage_notes = ?");
     params.push(str(body.storage_notes));
@@ -510,7 +541,7 @@ offersApp.patch("/offers/:id", requireMerchant, async (c) => {
       }
     }
     const rows = await tx.unsafe(
-      `UPDATE offers SET ${setList ? setList + "," : ""} updated_at = now() WHERE id = $${params.length + 1} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`,
+      `UPDATE offers SET ${setList ? setList + "," : ""} updated_at = now() WHERE id = $${params.length + 1} RETURNING id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`,
       [...params, offer.id] as (string | number | boolean | null)[],
     );
     return rows[0] as unknown as OfferRow;
@@ -529,15 +560,15 @@ offersApp.post("/offers/:id/encerrar", requireMerchant, async (c) => {
   const offerId = Number(c.req.param("id"));
   const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
   if (offer.state !== "rascunho" && offer.state !== "publicada") {
-    return c.json({ ok: false, code: "invalid_state", message: "Oferta ja encerrada, cancelada ou expirada." }, 409);
+    return c.json({ ok: false, code: "invalid_state", message: "Oferta já encerrada, cancelada ou expirada." }, 409);
   }
   const db = getDb();
   const closedRows = await db`UPDATE offers SET state = 'encerrada',
        updated_at = now()
-       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
   const updated = closedRows[0] as OfferRow;
   await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'closed', ${user.id})`;
   return c.json({ ok: true, offer: await serializeOffer(updated) });
@@ -554,10 +585,10 @@ offersApp.post("/offers/:id/cancel", requireMerchant, async (c) => {
   const offerId = Number(c.req.param("id"));
   const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
   if (offer.state !== "rascunho" && offer.state !== "publicada") {
-    return c.json({ ok: false, code: "invalid_state", message: "Oferta ja encerrada, cancelada ou expirada." }, 409);
+    return c.json({ ok: false, code: "invalid_state", message: "Oferta já encerrada, cancelada ou expirada." }, 409);
   }
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const reason = body ? str(body.reason) : "";
@@ -565,14 +596,14 @@ offersApp.post("/offers/:id/cancel", requireMerchant, async (c) => {
     return c.json({ ok: false, code: "reason_required", message: "Informe o motivo do cancelamento." }, 400);
   }
   if (!withinLen(reason, 200)) {
-    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter ate 200 caracteres." }, 400);
+    return c.json({ ok: false, code: "invalid_reason", message: "Motivo precisa ter até 200 caracteres." }, 400);
   }
 
   const db = getDb();
   const result = await db.begin(async (tx) => {
     const updatedRows = await tx`UPDATE offers SET state = 'cancelada', cancel_reason = ${reason},
          updated_at = now()
-         WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
+         WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
     const affected = await tx`SELECT id, consumer_id FROM reservations
          WHERE offer_id = ${offer.id} AND state IN ('pendente','confirmada')` as { id: number; consumer_id: number }[];
     for (const r of affected) {
@@ -594,8 +625,23 @@ offersApp.post("/offers/:id/cancel", requireMerchant, async (c) => {
   });
 });
 
-// Foto obrigatoria para publicar. Upload local em data/uploads; o banco guarda
-// so o caminho. Aceita jpeg, png e webp ate 5 MB. Editavel mesmo com reservas.
+// Fotos no cadastro (rascunho): caixa até 3, item 1 por item. Após publicar,
+// nenhuma foto pode ser trocada ou removida. Compat: photo_path guarda a 1ª.
+async function saveOfferPhoto(offerId: number, itemId: number | null, file: File, position: number): Promise<string> {
+  const ext = PHOTO_MIMES[file.type];
+  if (!ext) throw { status: 400, body: { ok: false, code: "invalid_photo", message: "Foto precisa ser jpeg, png ou webp." } };
+  if (file.size > MAX_PHOTO_BYTES) throw { status: 400, body: { ok: false, code: "photo_too_large", message: "Foto precisa ter até 5 MB." } };
+  mkdirSync(UPLOAD_DIR, { recursive: true });
+  const filename = `${offerId}-${randomBytes(8).toString("hex")}${ext}`;
+  await Bun.write(`${UPLOAD_DIR}/${filename}`, file);
+  const path = `${UPLOAD_DIR}/${filename}`;
+  await getDb()`INSERT INTO offer_photos (offer_id, item_id, path, position) VALUES (${offerId}, ${itemId}, ${path}, ${position})`;
+  const rows = await getDb()`SELECT photo_path FROM offers WHERE id = ${offerId}`;
+  if (!(rows[0] as { photo_path: string }).photo_path) {
+    await getDb()`UPDATE offers SET photo_path = ${path}, updated_at = now() WHERE id = ${offerId}`;
+  }
+  return path;
+}
 offersApp.post("/offers/:id/photo", requireMerchant, async (c) => {
   const user = c.get("user");
   const estab = await getEstablishment(user.id);
@@ -605,55 +651,118 @@ offersApp.post("/offers/:id/photo", requireMerchant, async (c) => {
   const offerId = Number(c.req.param("id"));
   const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
   if (!offer) {
-    return c.json({ ok: false, code: "not_found", message: "Oferta nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
   }
-  if (offer.state !== "rascunho" && offer.state !== "publicada") {
-    return c.json({ ok: false, code: "invalid_state", message: "Oferta encerrada, cancelada ou expirada nao aceita foto nova." }, 409);
+  if (offer.state !== "rascunho") {
+    return c.json({ ok: false, code: "invalid_state", message: "Após publicar, a foto não pode ser trocada." }, 409);
   }
   const form = await c.req.formData().catch(() => null);
   const file = form?.get("photo");
   if (!(file instanceof File) || file.size === 0) {
     return c.json({ ok: false, code: "photo_required", message: "Envie uma foto da oferta." }, 400);
   }
-  const ext = PHOTO_MIMES[file.type];
-  if (!ext) {
-    return c.json({ ok: false, code: "invalid_photo", message: "Foto precisa ser jpeg, png ou webp." }, 400);
-  }
-  if (file.size > MAX_PHOTO_BYTES) {
-    return c.json({ ok: false, code: "photo_too_large", message: "Foto precisa ter ate 5 MB." }, 400);
-  }
-
-  mkdirSync(UPLOAD_DIR, { recursive: true });
-  const filename = `${offer.id}-${randomBytes(8).toString("hex")}${ext}`;
-  await Bun.write(`${UPLOAD_DIR}/${filename}`, file);
-  if (offer.photo_path) {
-    const { unlink } = await import("node:fs/promises");
-    await unlink(offer.photo_path).catch(() => {
-      // Foto antiga ausente: segue com a nova.
-    });
+  try {
+    const existing = ((await getDb()`SELECT COUNT(*)::int AS n FROM offer_photos WHERE offer_id = ${offer.id}`)[0] as { n: number }).n;
+    if (offer.kind === "caixa" && existing >= 3) {
+      return c.json({ ok: false, code: "too_many_photos", message: "Caixa surpresa aceita até 3 imagens." }, 400);
+    }
+    await saveOfferPhoto(offer.id, null, file, existing);
+  } catch (err) {
+    if (err && typeof err === "object" && "status" in err) {
+      const f = err as { status: number; body: Record<string, unknown> };
+      return c.json(f.body, f.status as 400);
+    }
+    throw err;
   }
   const db = getDb();
-  const photoRows = await db`UPDATE offers SET photo_path = ${`${UPLOAD_DIR}/${filename}`},
-       updated_at = now()
-       WHERE id = ${offer.id} RETURNING id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason`;
-  const updated = photoRows[0] as OfferRow;
   await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'photo_updated', ${user.id})`;
+  const updated = (await getOwnOffer(estab.id, offer.id)) as OfferRow;
   return c.json({ ok: true, offer: await serializeOffer(updated) });
+});
+offersApp.post("/offers/:id/photos", requireMerchant, async (c) => {
+  const user = c.get("user");
+  const estab = await getEstablishment(user.id);
+  if (!estab) return c.json({ ok: false, code: "no_establishment", message: "Cadastre o estabelecimento antes das ofertas." }, 404);
+  const offerId = Number(c.req.param("id"));
+  const offer = Number.isInteger(offerId) ? await getOwnOffer(estab.id, offerId) : null;
+  if (!offer) return c.json({ ok: false, code: "not_found", message: "Oferta não encontrada." }, 404);
+  if (offer.state !== "rascunho") {
+    return c.json({ ok: false, code: "invalid_state", message: "Após publicar, a foto não pode ser trocada." }, 409);
+  }
+  const form = await c.req.formData().catch(() => null);
+  if (!form) return c.json({ ok: false, code: "photo_required", message: "Envie uma foto da oferta." }, 400);
+  const files: { file: File; itemId: number | null }[] = [];
+  for (const [key, value] of form.entries()) {
+    if (!((value as unknown) instanceof File)) continue;
+    const f = value as unknown as File;
+    if (f.size === 0) continue;
+    if (key === "photo" || key === "photos") files.push({ file: f, itemId: null });
+    else if (key.startsWith("photo-")) {
+      const itemId = Number(key.slice(6));
+      files.push({ file: f, itemId: Number.isInteger(itemId) ? itemId : null });
+    }
+  }
+  if (files.length === 0) return c.json({ ok: false, code: "photo_required", message: "Envie uma foto da oferta." }, 400);
+  try {
+    const existing = ((await getDb()`SELECT COUNT(*)::int AS n FROM offer_photos WHERE offer_id = ${offer.id}`)[0] as { n: number }).n;
+    if (offer.kind === "caixa" && existing + files.length > 3) {
+      return c.json({ ok: false, code: "too_many_photos", message: "Caixa surpresa aceita até 3 imagens." }, 400);
+    }
+    if (offer.kind === "item") {
+      const validIds = new Set(((await getDb()`SELECT item_id FROM offer_items WHERE offer_id = ${offer.id}`) as { item_id: number }[]).map((r) => r.item_id));
+      for (const f of files) {
+        if (f.itemId === null || !validIds.has(f.itemId)) {
+          return c.json({ ok: false, code: "invalid_photo_item", message: "É permitido até uma imagem por item." }, 400);
+        }
+      }
+      const perItem = await getDb()`SELECT item_id, COUNT(*)::int AS n FROM offer_photos WHERE offer_id = ${offer.id} GROUP BY item_id`;
+      const counts = new Map<number, number>(((perItem as unknown as { item_id: number; n: number }[]).map((r) => [r.item_id, r.n])));
+      for (const f of files) {
+        const n = (counts.get(f.itemId as number) ?? 0) + 1;
+        if (n > 1) return c.json({ ok: false, code: "too_many_photos", message: "É permitido até uma imagem por item." }, 400);
+        counts.set(f.itemId as number, n);
+      }
+    }
+    let pos = existing;
+    for (const f of files) {
+      await saveOfferPhoto(offer.id, offer.kind === "item" ? f.itemId : null, f.file, pos++);
+    }
+  } catch (err) {
+    if (err && typeof err === "object" && "status" in err) {
+      const f = err as { status: number; body: Record<string, unknown> };
+      return c.json(f.body, f.status as 400);
+    }
+    throw err;
+  }
+  await getDb()`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('offer', ${offer.id}, 'photo_updated', ${user.id})`;
+  const updated = (await getOwnOffer(estab.id, offer.id)) as OfferRow;
+  return c.json({ ok: true, offer: await serializeOffer(updated) });
+});
+offersApp.get("/offer-photos/:id", requireAuth, async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ ok: false, code: "not_found", message: "Foto não encontrada." }, 404);
+  const rows = await getDb()`SELECT path FROM offer_photos WHERE id = ${id}`;
+  const row = (rows[0] as { path: string } | undefined) ?? null;
+  if (!row) return c.json({ ok: false, code: "not_found", message: "Foto não encontrada." }, 404);
+  const file = Bun.file(row.path);
+  if (!(await file.exists())) return c.json({ ok: false, code: "not_found", message: "Foto não encontrada." }, 404);
+  const type = row.path.endsWith(".png") ? "image/png" : row.path.endsWith(".webp") ? "image/webp" : "image/jpeg";
+  return new Response(await file.arrayBuffer(), { headers: { "Content-Type": type, "Cache-Control": "private, max-age=86400" } });
 });
 
 offersApp.get("/offers/:id/photo", requireAuth, async (c) => {
   const offerId = Number(c.req.param("id"));
   const photoFound = Number.isInteger(offerId)
-    ? await getDb()`SELECT id, establishment_id, title, kind, photo_path, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId}`
+    ? await getDb()`SELECT id, establishment_id, title, kind, photo_path, box_description, total_units, price_cents, is_free, address_snapshot, gps_lat, gps_lng, available_from, pickup_from, pickup_until, storage_notes, state, cancel_reason FROM offers WHERE id = ${offerId}`
     : [];
   const offer = (photoFound[0] as OfferRow | undefined) ?? null;
   if (!offer || !offer.photo_path) {
-    return c.json({ ok: false, code: "not_found", message: "Foto nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Foto não encontrada." }, 404);
   }
   // Foto visivel para qualquer usuario autenticado, em qualquer estado.
   const file = Bun.file(offer.photo_path);
   if (!(await file.exists())) {
-    return c.json({ ok: false, code: "not_found", message: "Foto nao encontrada." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Foto não encontrada." }, 404);
   }
   const type = offer.photo_path.endsWith(".png")
     ? "image/png"

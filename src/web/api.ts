@@ -19,7 +19,7 @@ async function request<T>(path: string, init?: { method?: string; body?: unknown
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     throw new ApiError(
-      (data as { message?: string })?.message ?? "Falha na requisicao. Tente de novo.",
+      (data as { message?: string })?.message ?? "Falha na requisição. Tente de novo.",
       res.status,
       (data as { code?: string })?.code ?? "unknown",
     );
@@ -96,8 +96,13 @@ export const ReservationsApi = {
   active(): Promise<{ ok: true; reservation: ReservationDTO | null; misses_since_unblock: number; blocked_until: string | null }> {
     return request("/api/reservations/active");
   },
-  history(): Promise<{ ok: true; reservations: ReservationDTO[] }> {
-    return request("/api/reservations/history");
+  history(params: { state?: string; from?: string; until?: string; offset?: number } = {}): Promise<{ ok: true; reservations: ReservationDTO[]; total: number; has_more: boolean }> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) if (value !== "" && value !== undefined) query.set(key, String(value));
+    return request(`/api/reservations/history?${query}`);
+  },
+  detail(id: number): Promise<{ ok: true; reservation: ReservationDTO }> {
+    return request(`/api/reservations/${id}`);
   },
   cancel(id: number): Promise<{ ok: true }> {
     return request(`/api/reservations/${id}/cancel`, { method: "POST" });
@@ -105,11 +110,8 @@ export const ReservationsApi = {
   incoming(): Promise<{ ok: true; reservations: IncomingReservation[] }> {
     return request("/api/reservations/incoming");
   },
-  accept(id: number): Promise<{ ok: true; reservation: ReservationDTO; pickup_code: string }> {
-    return request(`/api/reservations/${id}/accept`, { method: "POST" });
-  },
-  refuse(id: number, reason: string): Promise<{ ok: true }> {
-    return request(`/api/reservations/${id}/refuse`, { method: "POST", body: { reason } });
+  incomingDetail(id: number): Promise<{ ok: true; solicitation: IncomingReservation & { price_cents: number; offer_kind: string; box_description: string; items: { item_id: number; name: string; unit: string; qty_per_unit: number }[]; photos: { id: number; item_id: number | null; path: string }[] } }> {
+    return request(`/api/reservations/incoming/${id}`);
   },
   merchantCancel(id: number, reason: string): Promise<{ ok: true }> {
     return request(`/api/reservations/${id}/merchant-cancel`, { method: "POST", body: { reason } });
@@ -126,6 +128,9 @@ export const NoticesApi = {
 };
 
 export const PickupApi = {
+  preview(code: string): Promise<{ ok: true; preview: { reservation_id: number; offer_title: string; offer_kind: string; box_description: string; items: { item_id: number; name: string; unit: string; qty_per_unit: number }[]; price_cents: number; is_free: boolean; consumer_name: string; address_snapshot: string; pickup_from: string; pickup_until: string } }> {
+    return request("/api/reservations/pickup/preview", { method: "POST", body: { code } });
+  },
   confirm(code: string): Promise<{
     ok: true;
     pickup: {
@@ -194,10 +199,8 @@ export const OffersApi = {
   cancel(id: number, reason: string): Promise<{ ok: true; offer: OfferDTO; cancelled_reservations: number }> {
     return request(`/api/offers/${id}/cancel`, { method: "POST", body: { reason } });
   },
-  async uploadPhoto(id: number, file: File): Promise<{ ok: true; offer: OfferDTO }> {
-    const form = new FormData();
-    form.set("photo", file);
-    const res = await fetch(`/api/offers/${id}/photo`, { method: "POST", body: form });
+  async uploadPhotos(id: number, form: FormData): Promise<{ ok: true; offer: OfferDTO }> {
+    const res = await fetch(`/api/offers/${id}/photos`, { method: "POST", body: form });
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       throw new ApiError(

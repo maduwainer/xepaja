@@ -19,7 +19,7 @@ import {
 
 export const usersApp = new Hono<AppEnv>();
 
-const INVALID_LOGIN = "E-mail ou senha invalidos.";
+const INVALID_LOGIN = "E-mail ou senha inválidos.";
 
 // POST /api/auth/signup
 // RF-01: conta com nome, CPF, e-mail e senha. Consumidor novo sai com raio
@@ -37,13 +37,13 @@ usersApp.post("/auth/signup", async (c) => {
     return c.json({ ok: false, code: "invalid_name", message: "Informe o nome." }, 400);
   }
   if (!withinLen(name, 120)) {
-    return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
+    return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter até 120 caracteres." }, 400);
   }
   if (!email) {
-    return c.json({ ok: false, code: "invalid_email", message: "Informe um e-mail valido." }, 400);
+    return c.json({ ok: false, code: "invalid_email", message: "Informe um e-mail válido." }, 400);
   }
   if (!cpf) {
-    return c.json({ ok: false, code: "invalid_cpf", message: "Informe um CPF valido." }, 400);
+    return c.json({ ok: false, code: "invalid_cpf", message: "Informe um CPF válido." }, 400);
   }
   if (password.length < 8) {
     return c.json(
@@ -53,7 +53,7 @@ usersApp.post("/auth/signup", async (c) => {
   }
   if (password.length > 128) {
     return c.json(
-      { ok: false, code: "invalid_password", message: "A senha precisa ter ate 128 caracteres." },
+      { ok: false, code: "invalid_password", message: "A senha precisa ter até 128 caracteres." },
       400,
     );
   }
@@ -76,7 +76,7 @@ usersApp.post("/auth/signup", async (c) => {
   const existing = (await db`SELECT id FROM users WHERE email = ${email}`)[0];
   if (existing) {
     return c.json(
-      { ok: false, code: "email_in_use", message: "Este e-mail ja esta cadastrado." },
+      { ok: false, code: "email_in_use", message: "Este e-mail já está cadastrado." },
       409,
     );
   }
@@ -84,7 +84,7 @@ usersApp.post("/auth/signup", async (c) => {
   const passwordHash = await hashPassword(password);
   const inserted = await db`INSERT INTO users (name, cpf, email, password_hash, role, search_radius_km)
        VALUES (${name}, ${cpf}, ${email}, ${passwordHash}, ${role}, ${radius})
-       RETURNING id, name, email, role, search_radius_km, misses_since_unblock, blocked_until`;
+       RETURNING id, name, cpf, email, role, search_radius_km, misses_since_unblock, blocked_until`;
   const row = inserted[0] as Parameters<typeof toUserDTO>[0];
 
   const { token, expiresAt } = await createSession(row.id);
@@ -154,7 +154,7 @@ usersApp.patch("/users/me", requireAuth, async (c) => {
       return c.json({ ok: false, code: "invalid_name", message: "Informe o nome." }, 400);
     }
     if (!withinLen(name, 120)) {
-      return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
+      return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter até 120 caracteres." }, 400);
     }
     updates.push("name = ?");
     params.push(name);
@@ -163,7 +163,7 @@ usersApp.patch("/users/me", requireAuth, async (c) => {
   if (body.search_radius_km !== undefined) {
     if (user.role !== "consumer") {
       return c.json(
-        { ok: false, code: "radius_consumer_only", message: "Raio de busca e do perfil consumidor." },
+        { ok: false, code: "radius_consumer_only", message: "Raio de busca é do perfil consumidor." },
         403,
       );
     }
@@ -187,7 +187,7 @@ usersApp.patch("/users/me", requireAuth, async (c) => {
   const setList = updates.map((u, i) => `${u.replace("?", `$${i + 1}`)}`).join(", ");
   const updatedRows = await db.unsafe(
     `UPDATE users SET ${setList}, updated_at = now()
-     WHERE id = $${params.length} RETURNING id, name, email, role,
+     WHERE id = $${params.length} RETURNING id, name, cpf, email, role,
      search_radius_km, misses_since_unblock, blocked_until`,
     params as (string | number)[],
   );

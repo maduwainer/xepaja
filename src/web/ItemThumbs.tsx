@@ -44,10 +44,12 @@ export function ItemThumbs({ items }: { items: { name: string }[] }) {
 // Capa da reserva: foto da oferta quando houver, placeholder quando nao.
 export function ReservationCover({
   offerId,
+  reservationId,
   hasPhoto,
   title,
 }: {
   offerId: number;
+  reservationId?: number;
   hasPhoto: boolean;
   title: string;
 }) {
@@ -62,7 +64,7 @@ export function ReservationCover({
   return (
     <img
       className="thumb"
-      src={`/api/offers/${offerId}/photo`}
+      src={reservationId ? `/api/reservations/${reservationId}/photo` : `/api/offers/${offerId}/photo`}
       alt={`Foto da oferta ${title}`}
       loading="lazy"
       onError={() => setBroken(true)}

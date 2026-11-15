@@ -649,3 +649,16 @@ img, svg, video { max-width: 100%; }
 @media (min-width: 640px) {
   .topnav { display: block; }
 }
+
+/* Reservas: resumo ativo, histórico e filtros com os componentes do app. */
+.reservation-active { background: var(--sage); border: 1px solid var(--brand); }
+.pickup-code-box { margin: 16px 0; }
+.pickup-code { display: block; color: var(--brand-dark); font-size: clamp(24px, 7vw, 36px); letter-spacing: .12em; overflow-wrap: anywhere; }
+.history-radio { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; margin: 8px 0; cursor: pointer; }
+.history-radio input { width: auto; flex: 0 0 auto; }
+.reservation-summary dd { overflow-wrap: anywhere; }
+.reservations-view .offer p { margin: 4px 0; }
+.reservations-view .pickup-code-box p { margin: 6px 0; }
+.reservations-view > .sub { margin-top: 24px; }
+.reservations-view .offer .btn { margin-top: 8px; }
+#reserva-titulo:focus, #reserva-detalhe-titulo:focus, #filtros-titulo:focus { outline-offset: 6px; }

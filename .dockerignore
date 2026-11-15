@@ -1,5 +1,4 @@
 node_modules
-data/uploads
-data/vapid.json
+data
 public/dist
 .env

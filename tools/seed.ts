@@ -24,6 +24,15 @@
 // Manutencao: ao mudar fluxos, validacoes ou formatos da API, atualizar
 // este arquivo junto (ver "Seed de demonstracao" em ../AGENTS.md).
 
+// Modo explícito de manutenção: não roda os cenários normais nem acrescenta reservas.
+if (process.argv.includes("--recreate-reservations")) {
+  const { recreateReservations } = await import("./recreate-reservations");
+  const { closeDb } = await import("../src/api/db");
+  try { await recreateReservations(process.argv.includes("--apply")); }
+  finally { await closeDb(); }
+  process.exit(0);
+}
+
 import postgres from "postgres";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -277,8 +286,8 @@ async function createReservation(
     }
     if (res.json?.repeated) {
       const st = res.json.reservation?.state as string | undefined;
-      if (st === "pendente" || st === "confirmada") {
-        return { id: res.json.reservation.id, state: st };
+      if (st === "confirmada") {
+        return { id: res.json.reservation.id, state: st, code: res.json.reservation.pickup_code };
       }
       continue;
     }
@@ -387,6 +396,7 @@ async function ensureOffer(
         ...(spec.is_free ? { is_free: true } : {}),
         ...offerWindow(),
         storage_notes: spec.storage_notes,
+        ...(spec.kind === "caixa" ? { box_description: `Caixa ${spec.title} com itens frescos.` } : {}),
         items: spec.items.map((i) => {
           const id = itemIds.get(i.name);
           if (!id) throw new Error(`seed: item ${i.name} nao encontrado para a oferta ${spec.title}`);
@@ -498,7 +508,8 @@ async function ensureReservations(
   const zeca = cookies.get("cliente-zeca@exemplo.com");
   if (zeca && !(await activeReservation(zeca))) {
     const offerId = offerIds.get("Xepa da padaria");
-    if (offerId) {
+    const history = await historyList(zeca);
+    if (offerId && !history.some(r => r.offer_title === "Xepa da padaria" && r.state === "retirada")) {
       const created = await createReservation(zeca, offerId, `seed-cliente-zeca-${offerId}-retirada`, "retirada de exemplo");
       if (!created) {
         console.log("retirada de exemplo sem oferta vigente, pulando");
@@ -524,7 +535,8 @@ async function ensureReservations(
   // dentro do prazo (sem falta), liberando a ativa.
   if (zeca && !(await activeReservation(zeca))) {
     const offerId = offerIds.get("Laranjas maduras gratis");
-    if (offerId) {
+    const history = await historyList(zeca);
+    if (offerId && !history.some(r => r.offer_title === "Laranjas maduras gratis" && r.state === "cancelada")) {
       const created = await createReservation(zeca, offerId, `seed-cliente-zeca-${offerId}-cancela`, "cancelamento de exemplo");
       if (!created) {
         console.log("cancelamento de exemplo sem oferta vigente, pulando");
@@ -561,14 +573,18 @@ for (const spec of ESTABLISHMENTS) {
   for (const offer of spec.offers) await ensureOffer(cookie, offer, itemIds);
 }
 
-// Falta de exemplo antes dos pedidos: com 1 falta o pedido sai pendente.
+// Falta de exemplo antes dos pedidos: historico de faltas mantido, pedido segue confirmada.
 await markOneMiss("cliente-joao@exemplo.com");
 await markOneMiss("cliente-beto@exemplo.com");
 
 async function historyList(cookie: string): Promise<{ id: number; offer_title: string; state: string }[]> {
-  const res = await req("/api/reservations/history", { cookie });
-  if (res.status !== 200) fail("historico", res);
-  return res.json.reservations;
+  const reservations: { id: number; offer_title: string; state: string }[] = [];
+  while (true) {
+    const res = await req(`/api/reservations/history?offset=${reservations.length}&limit=50`, { cookie });
+    if (res.status !== 200) fail("historico", res);
+    reservations.push(...res.json.reservations);
+    if (!res.json.has_more) return reservations;
+  }
 }
 
 async function activeFor(cookie: string, title: string): Promise<{ id: number; state: string } | null> {
@@ -578,7 +594,7 @@ async function activeFor(cookie: string, title: string): Promise<{ id: number; s
   return r && r.offer_title === title ? { id: r.id, state: r.state } : null;
 }
 
-async function ensurePending(
+async function ensureConfirmedLegacy(
   cookie: string,
   offerId: number,
   title: string,
@@ -586,7 +602,7 @@ async function ensurePending(
 ): Promise<number> {
   const already = await activeFor(cookie, title);
   if (already) {
-    if (already.state !== "pendente") throw new Error(`seed: ${who} tem ativa nao pendente em ${title}`);
+    if (already.state !== "confirmada") throw new Error(`seed: ${who} tem ativa nao confirmada em ${title}`);
     return already.id;
   }
   const hist = await historyList(cookie);
@@ -595,35 +611,25 @@ async function ensurePending(
   }
   const created = await createReservation(cookie, offerId, `seed-${who}-${offerId}`, `reserva ${who} -> ${title}`);
   if (!created) throw new Error(`seed: oferta ${title} fora de jogo para ${who}`);
-  if (created.state !== "pendente") {
-    throw new Error(`seed: ${who} -> ${title} saiu ${created.state}, esperado pendente (falta marcada?)`);
+  if (created.state !== "confirmada") {
+    throw new Error(`seed: ${who} -> ${title} saiu ${created.state}, esperado confirmada`);
   }
   return created.id;
 }
 
-// Recusada: comerciante recusa o pendente com motivo.
+// Recusada historica sem fluxo pendente: cria confirmada e marca como recusada direto no banco.
 async function refuseFlow(consumerEmail: string, title: string, reason: string): Promise<void> {
   const cookie = cookies.get(consumerEmail);
   const offerId = offerIds.get(title);
-  const owner = offerOwners.get(title);
-  if (!cookie || !offerId || !owner) throw new Error(`seed: dados faltando para recusar ${title}`);
+  if (!cookie || !offerId) throw new Error(`seed: dados faltando para recusar ${title}`);
   const hist = await historyList(cookie);
   if (hist.some((h) => h.offer_title === title && h.state === "recusada")) {
     console.log(`recusa ja existia: ${consumerEmail} -> ${title}`);
     return;
   }
-  const id = await ensurePending(cookie, offerId, title, consumerEmail.split("@")[0]);
-  const refused = await req(`/api/reservations/${id}/refuse`, {
-    method: "POST",
-    cookie: merchantCookies.get(owner),
-    body: { reason },
-  });
-  if (refused.status === 404) {
-    console.log(`recusa ja decidida: ${consumerEmail} -> ${title}`);
-    return;
-  }
-  if (refused.status !== 200) fail(`recusar ${title}`, refused);
-  console.log(`pedido recusado: ${consumerEmail} -> ${title}`);
+  const id = await ensureConfirmedLegacy(cookie, offerId, title, consumerEmail.split("@")[0]);
+  await seedDb`UPDATE reservations SET state = 'recusada', cancel_reason = ${reason} WHERE id = ${id}`;
+  console.log(`pedido recusado (legado): ${consumerEmail} -> ${title}`);
 }
 
 // Cancelada pelo comercio: confirmada que o comerciante cancela com motivo.
@@ -664,7 +670,15 @@ async function timeTravelReservation(id: number, field: "pending_expires_at" | "
   // Excecao documentada fora da API: expiracao real levaria 30 min ou
   // horas; aqui adiantamos o relogio da reserva e disparamos a varredura
   // preguicosa com uma leitura normal.
-  await seedDb`UPDATE reservations SET ${seedDb(field)} = ${iso} WHERE id = ${id}`;
+  if (field === "pickup_until") {
+    const from = new Date(Date.parse(iso) - 3600_000).toISOString();
+    const created = new Date(Date.parse(from) - 3600_000).toISOString();
+    await seedDb`UPDATE reservations SET pickup_until = ${iso}, created_at = ${created},
+      snapshot = jsonb_set(jsonb_set(snapshot, '{pickup_from}', to_jsonb(${from}::text)), '{pickup_until}', to_jsonb(${iso}::text))
+      WHERE id = ${id}`;
+  } else {
+    await seedDb`UPDATE reservations SET pending_expires_at = ${iso} WHERE id = ${id}`;
+  }
 }
 
 // Expirada sem falta: pendente que passou dos 30 min sem decisao.
@@ -677,8 +691,8 @@ async function expirePendingFlow(consumerEmail: string, title: string): Promise<
     console.log(`expirada sem falta ja existia: ${consumerEmail} -> ${title}`);
     return;
   }
-  const id = await ensurePending(cookie, offerId, title, consumerEmail.split("@")[0]);
-  await timeTravelReservation(id, "pending_expires_at", new Date(Date.now() - 60_000).toISOString());
+  const id = await ensureConfirmedLegacy(cookie, offerId, title, consumerEmail.split("@")[0]);
+  await seedDb`UPDATE reservations SET state = 'pendente', pending_expires_at = ${new Date(Date.now() - 60_000).toISOString()} WHERE id = ${id}`;
   await req("/api/reservations/active", { cookie });
   const after = await historyList(cookie);
   if (!after.some((h) => h.offer_title === title && h.state === "expirada")) {
