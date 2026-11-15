@@ -662,3 +662,32 @@ img, svg, video { max-width: 100%; }
 .reservations-view > .sub { margin-top: 24px; }
 .reservations-view .offer .btn { margin-top: 8px; }
 #reserva-titulo:focus, #reserva-detalhe-titulo:focus, #filtros-titulo:focus { outline-offset: 6px; }
+
+
+/* Login novo + atalhos comerciante + carrossel */
+.auth-screen { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; max-width: 480px; margin-inline: auto; width: 100%; }
+.auth-screen > .auth-hero, .auth-screen > .auth-card { width: 100%; min-width: 0; max-width: none; justify-self: stretch; }
+.auth-hero { background: var(--brand); color: #fff; border-radius: 22px 22px 0 0; padding: 28px 24px 64px; }
+.auth-brand { display: flex; align-items: center; gap: 12px; }
+.auth-x { width: 44px; height: 44px; border-radius: 12px; }
+.auth-name { font-family: var(--font-display); font-size: 1.8rem; font-weight: 800; }
+.auth-slogan { font-family: var(--font-display); font-size: 1.6rem; font-weight: 800; margin: 16px 0 4px; }
+.auth-sub { margin: 0; opacity: 0.9; }
+.auth-card { margin-top: -40px; border-radius: 22px; background: var(--bg); }
+.auth-card h1 { margin: 4px 0; }
+.auth-subtitle { margin: 6px 0 24px; }
+.auth-card .auth-form { max-width: none; }
+.auth-forgot { justify-self: end; border: 0; background: transparent; color: var(--brand); font: inherit; font-weight: 700; min-height: 44px; cursor: pointer; }
+.auth-submit, .auth-switch-button { width: 100%; border-radius: 999px; }
+.auth-switch { text-align: center; margin-top: 8px; }
+.auth-switch p { margin: 0 0 12px; }
+.auth-switch-button { border: 1px solid var(--brand); color: var(--brand); background: transparent; }
+.auth-profile { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid var(--brand); border-radius: 12px; padding: 12px; }
+.auth-profile label { display: flex; align-items: center; gap: 6px; }
+.auth-profile input { width: auto; }
+.brand-wrap { display: flex; align-items: center; gap: 10px; }
+.brand-x { width: 30px; height: 30px; border-radius: 8px; }
+.topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.retirada-shortcut { background: #fff; border: 0; border-radius: 999px; width: 44px; height: 44px; font-size: 1.4rem; }
+.merchant-shortcuts { display: grid; gap: 10px; margin-bottom: 12px; }
+.carousel { display: grid; gap: 8px; }

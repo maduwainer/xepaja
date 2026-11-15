@@ -3,12 +3,12 @@
 // (para o watch em dev funcionar), navegacoes com fallback offline.
 // Versao do cache do shell: aumentar sempre que index.html, styles.css,
 // offline.html ou manifest mudarem, senao o SW serve o shell antigo.
-const CACHE = "xepaja-v13";
+const CACHE = "xepaja-v19";
 const SHELL = ["/", "/offline.html", "/manifest.webmanifest", "/styles.css"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()),
+    caches.open(CACHE).then((cache) => cache.addAll(SHELL.map((url) => new Request(url, { cache: "reload" })))).then(() => self.skipWaiting()),
   );
 });
 
@@ -23,7 +23,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("push", (event) => {
   // Complemento do aviso interno: se o push falhar ou nao existir
   // inscricao, a lista de Avisos no app continua valendo.
-  let data = { title: "XepaJá", body: "Voce tem um aviso novo.", url: "/" };
+  let data = { title: "XepaJá", body: "Você tem um aviso novo.", url: "/" };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {

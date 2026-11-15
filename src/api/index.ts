@@ -46,6 +46,7 @@ app.use(
 );
 app.use("/sw.js", serveStatic({ path: "./public/sw.js" }));
 app.use("/offline.html", serveStatic({ path: "./public/offline.html" }));
+app.use("/logo-x.png", serveStatic({ path: "./public/logo-x.png" }));
 app.get("/", serveStatic({ path: "./public/index.html" }));
 
 // Fallback SPA: qualquer GET fora de /api volta para o shell do app.
@@ -53,7 +54,7 @@ app.get("/", serveStatic({ path: "./public/index.html" }));
 app.notFound(async (c) => {
   if (c.req.path.startsWith("/api")) {
     return c.json(
-      { ok: false, code: "not_found", message: "Rota da API nao existe." },
+      { ok: false, code: "not_found", message: "Rota da API não existe." },
       404,
     );
   }
