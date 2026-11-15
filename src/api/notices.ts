@@ -17,11 +17,11 @@ noticesApp.get("/notices", requireAuth, async (c) => {
 noticesApp.post("/notices/:id/read", requireAuth, async (c) => {
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id)) {
-    return c.json({ ok: false, code: "not_found", message: "Aviso nao encontrado." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Aviso não encontrado." }, 404);
   }
   const changed = await getDb()`UPDATE notices SET read_at = now() WHERE id = ${id} AND user_id = ${c.get("user").id} AND read_at IS NULL RETURNING id`;
   if (changed.length === 0) {
-    return c.json({ ok: false, code: "not_found", message: "Aviso nao encontrado." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Aviso não encontrado." }, 404);
   }
   return c.json({ ok: true });
 });

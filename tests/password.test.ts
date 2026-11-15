@@ -9,7 +9,7 @@ function uniqueEmail(): string {
   return `fase6-senha-${Date.now()}-${counter}@exemplo.com`;
 }
 
-const GENERIC = "Se o e-mail estiver cadastrado, enviamos as instrucoes de redefinicao.";
+const GENERIC = "Se o e-mail estiver cadastrado, enviamos as instruções de redefinição.";
 
 async function signup(password = "senha-segura-70"): Promise<{ cookie: string; id: number; email: string }> {
   const email = uniqueEmail();

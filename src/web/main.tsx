@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 
 const rootEl = document.getElementById("root");
-if (!rootEl) throw new Error("Elemento #root nao encontrado em index.html.");
+if (!rootEl) throw new Error("Elemento #root não encontrado em index.html.");
 
 createRoot(rootEl).render(
   <StrictMode>

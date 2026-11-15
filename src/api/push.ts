@@ -79,7 +79,7 @@ pushApp.post("/push/subscribe", requireAuth, async (c) => {
   const p256dh = typeof keys.p256dh === "string" ? keys.p256dh : "";
   const auth = typeof keys.auth === "string" ? keys.auth : "";
   if (!endpoint.startsWith("https://") || !p256dh || !auth) {
-    return c.json({ ok: false, code: "invalid_subscription", message: "Inscricao invalida." }, 400);
+    return c.json({ ok: false, code: "invalid_subscription", message: "Inscrição inválida." }, 400);
   }
   await getDb()`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
        VALUES (${c.get("user").id}, ${endpoint}, ${p256dh}, ${auth})

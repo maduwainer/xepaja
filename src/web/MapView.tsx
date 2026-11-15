@@ -56,7 +56,7 @@ export function MapView({
   }, [key]);
 
   if (unavailable) {
-    return <p className="muted map-caption">Mapa indisponivel aqui (sem acesso a rede para o mapa).</p>;
+    return <p className="muted map-caption">Mapa indisponível aqui (sem acesso à rede para o mapa).</p>;
   }
   return (
     <>

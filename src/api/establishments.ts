@@ -61,7 +61,7 @@ export function publishStatus(estab: EstablishmentRow | null): {
     return {
       can_publish: false,
       publish_block_reason:
-        "Registre a posicao GPS no local de retirada antes de publicar ofertas.",
+        "Registre a posição GPS no local de retirada antes de publicar ofertas.",
     };
   }
   return { can_publish: true, publish_block_reason: null };
@@ -108,7 +108,7 @@ establishmentsApp.post("/establishments", requireMerchant, async (c) => {
   const user = c.get("user");
   if (await getMine(user.id)) {
     return c.json(
-      { ok: false, code: "already_exists", message: "Voce ja tem um estabelecimento. Edite o atual." },
+      { ok: false, code: "already_exists", message: "Você já tem um estabelecimento. Edite o atual." },
       409,
     );
   }
@@ -124,7 +124,7 @@ establishmentsApp.post("/establishments", requireMerchant, async (c) => {
     return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do estabelecimento." }, 400);
   }
   if (!withinLen(name, 120)) {
-    return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
+    return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter até 120 caracteres." }, 400);
   }
   if (!kind) {
     return c.json(
@@ -133,11 +133,11 @@ establishmentsApp.post("/establishments", requireMerchant, async (c) => {
     );
   }
   if (cnpj === null) {
-    return c.json({ ok: false, code: "invalid_cnpj", message: "Informe um CNPJ valido ou deixe em branco." }, 400);
+    return c.json({ ok: false, code: "invalid_cnpj", message: "Informe um CNPJ válido ou deixe em branco." }, 400);
   }
   if (!address) {
     return c.json(
-      { ok: false, code: "invalid_address", message: "Informe o endereco de retirada." },
+      { ok: false, code: "invalid_address", message: "Informe o endereço de retirada." },
       400,
     );
   }
@@ -179,7 +179,7 @@ establishmentsApp.patch("/establishments/mine", requireMerchant, async (c) => {
       return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do estabelecimento." }, 400);
     }
     if (!withinLen(name, 120)) {
-      return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter ate 120 caracteres." }, 400);
+      return c.json({ ok: false, code: "invalid_name", message: "Nome precisa ter até 120 caracteres." }, 400);
     }
     updates.push("name = ?");
     params.push(name);
@@ -198,7 +198,7 @@ establishmentsApp.patch("/establishments/mine", requireMerchant, async (c) => {
   if (body.cnpj !== undefined) {
     const cnpj = validateCnpj(body.cnpj);
     if (cnpj === null) {
-      return c.json({ ok: false, code: "invalid_cnpj", message: "Informe um CNPJ valido ou deixe em branco." }, 400);
+      return c.json({ ok: false, code: "invalid_cnpj", message: "Informe um CNPJ válido ou deixe em branco." }, 400);
     }
     updates.push("cnpj = ?");
     params.push(cnpj || null);
@@ -209,7 +209,7 @@ establishmentsApp.patch("/establishments/mine", requireMerchant, async (c) => {
     const address = str(body.address_text);
     if (!address) {
       return c.json(
-        { ok: false, code: "invalid_address", message: "Informe o endereco de retirada." },
+        { ok: false, code: "invalid_address", message: "Informe o endereço de retirada." },
         400,
       );
     }
@@ -235,7 +235,7 @@ establishmentsApp.patch("/establishments/mine", requireMerchant, async (c) => {
       {
         ok: false,
         code: "gps_required",
-        message: "Ao trocar o endereco, registre novamente a posicao GPS no local de retirada.",
+        message: "Ao trocar o endereço, registre novamente a posição GPS no local de retirada.",
       },
       422,
     );
@@ -290,13 +290,13 @@ establishmentsApp.post("/items", requireMerchant, async (c) => {
     return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do item." }, 400);
   }
   if (!withinLen(name, 80)) {
-    return c.json({ ok: false, code: "invalid_name", message: "Nome do item precisa ter ate 80 caracteres." }, 400);
+    return c.json({ ok: false, code: "invalid_name", message: "Nome do item precisa ter até 80 caracteres." }, 400);
   }
   if (!unit) {
     return c.json({ ok: false, code: "invalid_unit", message: "Informe a unidade do item." }, 400);
   }
   if (!withinLen(unit, 20)) {
-    return c.json({ ok: false, code: "invalid_unit", message: "Unidade precisa ter ate 20 caracteres." }, 400);
+    return c.json({ ok: false, code: "invalid_unit", message: "Unidade precisa ter até 20 caracteres." }, 400);
   }
   const inserted = await getDb()`INSERT INTO items (establishment_id, name, unit) VALUES (${estab.id}, ${name}, ${unit})
        RETURNING id, establishment_id, name, unit`;
@@ -318,10 +318,10 @@ establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
   }
   const itemId = Number(c.req.param("id"));
   if (!Number.isInteger(itemId)) {
-    return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Item não encontrado." }, 404);
   }
   if (!(await getOwnItem(estab.id, itemId))) {
-    return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Item não encontrado." }, 404);
   }
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const updates: string[] = [];
@@ -332,7 +332,7 @@ establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
       return c.json({ ok: false, code: "invalid_name", message: "Informe o nome do item." }, 400);
     }
     if (!withinLen(name, 80)) {
-      return c.json({ ok: false, code: "invalid_name", message: "Nome do item precisa ter ate 80 caracteres." }, 400);
+      return c.json({ ok: false, code: "invalid_name", message: "Nome do item precisa ter até 80 caracteres." }, 400);
     }
     updates.push("name = ?");
     params.push(name);
@@ -343,7 +343,7 @@ establishmentsApp.patch("/items/:id", requireMerchant, async (c) => {
       return c.json({ ok: false, code: "invalid_unit", message: "Informe a unidade do item." }, 400);
     }
     if (!withinLen(unit, 20)) {
-      return c.json({ ok: false, code: "invalid_unit", message: "Unidade precisa ter ate 20 caracteres." }, 400);
+      return c.json({ ok: false, code: "invalid_unit", message: "Unidade precisa ter até 20 caracteres." }, 400);
     }
     updates.push("unit = ?");
     params.push(unit);
@@ -372,16 +372,16 @@ establishmentsApp.delete("/items/:id", requireMerchant, async (c) => {
   }
   const itemId = Number(c.req.param("id"));
   if (!Number.isInteger(itemId)) {
-    return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Item não encontrado." }, 404);
   }
   if (!(await getOwnItem(estab.id, itemId))) {
-    return c.json({ ok: false, code: "not_found", message: "Item nao encontrado." }, 404);
+    return c.json({ ok: false, code: "not_found", message: "Item não encontrado." }, 404);
   }
   try {
     await getDb()`DELETE FROM items WHERE id = ${itemId}`;
   } catch (err) {
     if ((err as { code?: string })?.code === "23503") {
-      return c.json({ ok: false, code: "item_in_use", message: "Item em uso em ofertas e nao pode ser removido." }, 409);
+      return c.json({ ok: false, code: "item_in_use", message: "Item em uso em ofertas e não pode ser removido." }, 409);
     }
     throw err;
   }

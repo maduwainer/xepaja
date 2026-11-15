@@ -45,7 +45,7 @@ export function ItemsView() {
       setEditing(null);
       setFormKey((k) => k + 1);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha na requisicao. Tente de novo.");
+      setError(err instanceof ApiError ? err.message : "Falha na requisição. Tente de novo.");
     } finally {
       setBusy(false);
     }
@@ -63,14 +63,14 @@ export function ItemsView() {
       }
       setNotice("Item removido.");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha na requisicao. Tente de novo.");
+      setError(err instanceof ApiError ? err.message : "Falha na requisição. Tente de novo.");
     }
   }
 
   return (
     <section aria-labelledby="itens-titulo" className="card narrow-lg">
       <h1 id="itens-titulo">Itens do estabelecimento</h1>
-      <p className="muted">Nome e unidade de cada item. Eles compoem ofertas e caixas surpresa.</p>
+      <p className="muted">Nome e unidade de cada item. Eles compõem ofertas e caixas surpresa.</p>
       {error && error !== "Cadastre o estabelecimento antes dos itens." && (
         <p className="error" role="alert">
           {error}
@@ -122,7 +122,7 @@ export function ItemsView() {
               className="btn"
               onClick={() => { setEditing(null); setFormKey((k) => k + 1); }}
             >
-              Cancelar edicao
+              Cancelar edição
             </button>
           )}
         </div>

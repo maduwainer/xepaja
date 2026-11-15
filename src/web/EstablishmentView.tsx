@@ -7,16 +7,16 @@ function captureGps(
   onFail: (message: string) => void,
 ) {
   if (!("geolocation" in navigator)) {
-    onFail("Geolocalizacao nao suportada aqui: informe latitude e longitude manualmente.");
+    onFail("Geolocalização não suportada aqui: informe latitude e longitude manualmente.");
     return;
   }
   navigator.geolocation.getCurrentPosition(
     (pos) => onOk(pos.coords.latitude, pos.coords.longitude),
     (err) => {
       if (err.code === err.PERMISSION_DENIED) {
-        onFail("Permissao de localizacao negada. Libere no navegador ou informe manualmente.");
+        onFail("Permissão de localização negada. Libere no navegador ou informe manualmente.");
       } else {
-        onFail("Nao foi possivel obter o GPS. Tente de novo ou informe manualmente.");
+        onFail("Não foi possível obter o GPS. Tente de novo ou informe manualmente.");
       }
     },
     { enableHighAccuracy: true, timeout: 10000 },
@@ -71,7 +71,7 @@ export function EstablishmentView() {
       setData(res);
       setSaved(data?.establishment ? "Estabelecimento atualizado." : "Estabelecimento cadastrado.");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Falha na requisicao. Tente de novo.");
+      setError(err instanceof ApiError ? err.message : "Falha na requisição. Tente de novo.");
     } finally {
       setBusy(false);
     }
@@ -85,7 +85,7 @@ export function EstablishmentView() {
       {data && (
         <p className="note" aria-live="polite">
           {data.can_publish
-            ? "GPS registrado: voce podera publicar ofertas."
+            ? "GPS registrado: você poderá publicar ofertas."
             : data.publish_block_reason}
         </p>
       )}
@@ -95,7 +95,7 @@ export function EstablishmentView() {
           markers={[{ lat: Number(estab.gps_lat), lng: Number(estab.gps_lng), label: estab.address_text }]}
           zoom={15}
           ariaLabel={`Mapa do local de retirada: ${estab.address_text}`}
-          caption="Este e o ponto que os consumidores veem na busca."
+          caption="Este é o ponto que os consumidores veem na busca."
         />
       )}
       <form onSubmit={handleSubmit} className="stack">
@@ -117,21 +117,21 @@ export function EstablishmentView() {
         </div>
         </div>
         <div className="field">
-          <label htmlFor="estab-end">Endereco de retirada</label>
+          <label htmlFor="estab-end">Endereço de retirada</label>
           <input id="estab-end" name="address" required defaultValue={estab?.address_text ?? ""} autoComplete="street-address" />
         </div>
         <div className="row">
         <div className="field">
-          <label htmlFor="estab-ref">Referencia</label>
+          <label htmlFor="estab-ref">Referência</label>
           <input id="estab-ref" name="reference" defaultValue={estab?.reference ?? ""} />
         </div>
         <div className="field">
-          <label htmlFor="estab-horario">Horario de funcionamento</label>
-          <input id="estab-horario" name="hours" defaultValue={estab?.hours ?? ""} placeholder="ex. seg a sab, 7h as 13h" />
+          <label htmlFor="estab-horario">Horário de funcionamento</label>
+          <input id="estab-horario" name="hours" defaultValue={estab?.hours ?? ""} placeholder="ex. seg a sáb, 7h às 13h" />
         </div>
         </div>
         <fieldset className="gps">
-          <legend>Posicao GPS do local de retirada</legend>
+          <legend>Posição GPS do local de retirada</legend>
           <div className="row">
             <button
               type="button"
@@ -184,7 +184,7 @@ export function EstablishmentView() {
               {gpsMsg}
             </p>
           )}
-          <p className="muted">Ao trocar o endereco, registre o GPS de novo no novo local.</p>
+          <p className="muted">Ao trocar o endereço, registre o GPS de novo no novo local.</p>
         </fieldset>
         {error && (
           <p className="error" role="alert">

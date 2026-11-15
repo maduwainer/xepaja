@@ -23,7 +23,7 @@ function hashResetCode(code: string): string {
   return createHash("sha256").update(code.trim().toUpperCase()).digest("hex");
 }
 const GENERIC_FORGOT =
-  "Se o e-mail estiver cadastrado, enviamos as instrucoes de redefinicao.";
+  "Se o e-mail estiver cadastrado, enviamos as instruções de redefinição.";
 const RESET_URL_BASE = process.env.XEPAJA_URL ?? "http://localhost:3000";
 const RESEND_FROM = process.env.RESEND_FROM ?? "contato@xepaja.com";
 
@@ -38,15 +38,15 @@ function getResend(): Resend | null {
 async function sendResetEmail(email: string, token: string): Promise<void> {
   const client = getResend();
   if (!client) {
-    console.log(`[xepaja] reset de senha para ${email}: use o codigo ${token}`);
+    console.log(`[xepaja] reset de senha para ${email}: use o código ${token}`);
     return;
   }
   try {
     const { error } = await client.emails.send({
       from: RESEND_FROM,
       to: email,
-      subject: "XepaJa: redefinicao de senha",
-      text: `Voce pediu para redefinir sua senha no XepaJa.\n\nSeu codigo (vale por 1 hora):\n${token}\n\nAbra ${RESET_URL_BASE}, vá em Entrar > Esqueci a senha e digite o codigo com a nova senha.\n\nSe nao foi voce, ignore esta mensagem.`,
+      subject: "XepaJá: redefinição de senha",
+      text: `Você pediu para redefinir sua senha no XepaJá.\n\nSeu código (vale por 1 hora):\n${token}\n\nAbra ${RESET_URL_BASE}, vá em Entrar > Esqueci a senha e digite o código com a nova senha.\n\nSe não foi você, ignore esta mensagem.`,
     });
     if (error) console.error(`[xepaja] falha no envio de reset para ${email}:`, error.message);
   } catch (err) {
@@ -80,7 +80,7 @@ passwordApp.post("/auth/password/forgot", async (c) => {
         if (clash.length === 0) break;
         codeHash = "";
       }
-      if (!codeHash) throw new Error("nao foi possivel gerar codigo de reset unico");
+      if (!codeHash) throw new Error("não foi possível gerar código de reset único");
       await db`INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (${user.id}, ${codeHash}, ${new Date(Date.now() + TOKEN_TTL_MS).toISOString()})`;
       await db`INSERT INTO audit_log (entity, entity_id, action, actor_id) VALUES ('user', ${user.id}, 'password_forgot', ${null})`;
       await sendResetEmail(email, code);
@@ -104,7 +104,7 @@ passwordApp.post("/auth/password/reset", async (c) => {
   } | undefined) ?? null;
   if (!row || row.used_at || row.expires_at <= nowISO()) {
     return c.json(
-      { ok: false, code: "invalid_token", message: "Codigo invalido ou expirado." },
+      { ok: false, code: "invalid_token", message: "Código inválido ou expirado." },
       400,
     );
   }
@@ -117,7 +117,7 @@ passwordApp.post("/auth/password/reset", async (c) => {
   }
   if (password.length > 128) {
     return c.json(
-      { ok: false, code: "invalid_password", message: "A senha precisa ter ate 128 caracteres." },
+      { ok: false, code: "invalid_password", message: "A senha precisa ter até 128 caracteres." },
       400,
     );
   }

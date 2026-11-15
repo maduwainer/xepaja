@@ -45,7 +45,7 @@ export function NoticesView() {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         setPush(permission === "denied" ? "denied" : "off");
-        setPushMsg("Sem permissao, os avisos seguem listados aqui.");
+        setPushMsg("Sem permissão, os avisos seguem listados aqui.");
         return;
       }
       const reg = await navigator.serviceWorker.ready;
@@ -60,10 +60,10 @@ export function NoticesView() {
         keys: { p256dh: json.keys?.p256dh ?? "", auth: json.keys?.auth ?? "" },
       });
       setPush("on");
-      setPushMsg("Notificacoes ativadas neste aparelho.");
+      setPushMsg("Notificações ativadas neste aparelho.");
     } catch {
       setPush("off");
-      setPushMsg("Nao deu para ativar aqui; os avisos seguem listados abaixo.");
+      setPushMsg("Não deu para ativar aqui; os avisos seguem listados abaixo.");
     }
   }
 
@@ -80,7 +80,7 @@ export function NoticesView() {
       setPush("off");
     } catch {
       setPush("on");
-      setPushMsg("Nao deu para desativar agora.");
+      setPushMsg("Não deu para desativar agora.");
     }
   }
 
@@ -97,24 +97,20 @@ export function NoticesView() {
     <section aria-labelledby="avisos-titulo" className="card">
       <h1 id="avisos-titulo">Avisos</h1>
       <div className="note" aria-live="polite">
-        <p>
-          Todo evento importante gera um aviso aqui dentro do app. A notificacao
-          no aparelho e um complemento: se falhar, nada se perde.
-        </p>
         {push === "unsupported" && (
-          <p className="muted">Este navegador nao suporta notificacoes; a lista abaixo cobre tudo.</p>
+          <p className="muted">Este navegador não suporta notificações; a lista abaixo cobre tudo.</p>
         )}
         {push === "denied" && (
-          <p className="muted">Notificacoes bloqueadas no navegador; a lista abaixo cobre tudo.</p>
+          <p className="muted">Notificações bloqueadas no navegador; a lista abaixo cobre tudo.</p>
         )}
         {(push === "off" || push === "busy") && (
           <button type="button" className="btn small" disabled={push === "busy"} onClick={enablePush}>
-            {push === "busy" ? "Ativando..." : "Ativar notificacoes neste aparelho"}
+            {push === "busy" ? "Ativando..." : "Ativar notificações neste aparelho"}
           </button>
         )}
         {push === "on" && (
           <button type="button" className="btn small" onClick={disablePush}>
-            Desativar notificacoes
+            Desativar notificações
           </button>
         )}
         {pushMsg && <p>{pushMsg}</p>}
@@ -133,7 +129,7 @@ export function NoticesView() {
             </span>
             {!n.read_at && (
               <button type="button" className="btn small" onClick={() => markRead(n.id)}>
-                Marcar lido
+                Marcar como lido
               </button>
             )}
           </li>
